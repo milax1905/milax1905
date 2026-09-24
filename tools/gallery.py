@@ -32,46 +32,94 @@ def load_catalog():
     return {}
 
 
+def slug(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
+    return "".join(c if c.isalnum() else "-" for c in s).strip("-")
+
+
+def iso_path(n):
+    return os.path.join(PREV, n + "_iso.png")
+
+
+def plan_path(n):
+    return os.path.join(PREV, n + "_plan.png")
+
+
 def build_html(out: str = os.path.join(PREV, "index.html")) -> str:
     catalog = load_catalog()
-    names = sorted(f[:-6] for f in os.listdir(SCHEM) if f.endswith(".schem") and not f.startswith("_"))
-    cards = []
+    try:
+        summary = json.load(open(os.path.join(PREV, "_summary.json")))
+    except Exception:
+        summary = {}
+    names = [n for n in catalog if os.path.exists(os.path.join(SCHEM, n + ".schem"))]
+    names += sorted(f[:-6] for f in os.listdir(SCHEM) if f.endswith(".schem") and not f.startswith("_") and f[:-6] not in catalog)
+    total_blocks = sum(summary.get(n, {}).get("stats", {}).get("blocks", 0) for n in names)
+    order = ["Vaisseaux écrasés", "Labos abandonnés", "Ville tech des salopards", "Camps d'exploration", "Bonus"]
+    by_cat = {c: [] for c in order}
     for n in names:
-        iso = os.path.join(PREV, n + "_iso.png")
-        plan = os.path.join(PREV, n + "_plan.png")
-        if not os.path.exists(iso):
+        m = catalog.get(n, {})
+        by_cat.setdefault(m.get("category", "Bonus"), []).append(n)
+    sections = []
+    for c in order:
+        items = [n for n in by_cat.get(c, []) if os.path.exists(os.path.join(PREV, n + "_iso.png"))]
+        if not items:
             continue
-        meta = catalog.get(n, {})
-        size = meta.get("size", "")
-        desc = meta.get("fr", "")
-        cat = meta.get("category", "")
-        cards.append(f"""
-<section class="card" id="{n}" data-cat="{cat}">
-  <header><h2>{meta.get('title', n)}</h2><code>{n}.schem</code><span class="size">{size}</span></header>
-  <p>{desc}</p>
-  <img src="{_data_uri(iso)}" alt="{n} isometric" loading="lazy">
-  <details><summary>Vue de dessus</summary><img src="{_data_uri(plan, 700)}" alt="{n} plan" loading="lazy"></details>
-</section>""")
-    html = f"""<!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Schematics Neige</title>
+        cards_html = []
+        for n in items:
+            meta = catalog.get(n, {})
+            st = summary.get(n, {}).get("stats", {})
+            size = "×".join(str(v) for v in st.get("size", [])) if st else ""
+            blocks = f"{st.get('blocks', 0):,}".replace(",", "\u202f") if st else ""
+            cards_html.append(f"""
+<article class="card" id="{n}">
+  <header><h3>{meta.get('title', n)}</h3>
+    <div class="meta"><code>{n}.schem</code><span>{size}</span><span>{blocks} blocs</span><span class="paste">{meta.get('paste', '')}</span></div>
+  </header>
+  <p>{meta.get('fr', '')}</p>
+  <img src="{_data_uri(iso_path(n))}" alt="Rendu isométrique de {meta.get('title', n)}" loading="lazy">
+  <details><summary>Vue de dessus</summary><img src="{_data_uri(plan_path(n), 700)}" alt="Vue de dessus de {meta.get('title', n)}" loading="lazy"></details>
+</article>""")
+        sections.append(f"""<section class="cat" id="{slug(c)}"><h2>{c}</h2><div class="cards">{''.join(cards_html)}</div></section>""")
+    nav = "".join(f'<a href="#{slug(c)}">{c}</a>' for c in order if by_cat.get(c))
+    html = f"""<title>Schematics Neige</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Manrope:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
 <style>
-:root{{--bg:#f3eef6;--card:#ffffff;--ink:#2a2233;--muted:#6f6478;--accent:#8a5cc7;--line:#e2d8ea}}
-@media (prefers-color-scheme: dark){{:root:not([data-theme="light"]){{--bg:#1b1622;--card:#251e2e;--ink:#efe7f5;--muted:#a898b8;--accent:#c9a6ff;--line:#3a3046}}}}
-:root[data-theme="dark"]{{--bg:#1b1622;--card:#251e2e;--ink:#efe7f5;--muted:#a898b8;--accent:#c9a6ff;--line:#3a3046}}
-*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
-main{{max-width:1200px;margin:0 auto;padding:24px 16px}} h1{{font-size:1.8rem;margin:0 0 4px}} .lead{{color:var(--muted);margin:0 0 20px}}
-nav{{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}} nav a{{color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:.9rem}}
-.card{{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 20px}}
-.card header{{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline}} .card h2{{font-size:1.2rem;margin:0}}
-.card code{{color:var(--accent);font-size:.9rem}} .size{{color:var(--muted);font-size:.85rem}} .card p{{color:var(--muted);margin:6px 0 12px}}
-.card img{{width:100%;height:auto;border-radius:10px;display:block}} details{{margin-top:10px}} summary{{cursor:pointer;color:var(--accent)}}
-</style></head><body><main>
-<h1>Schematics « Neige »</h1>
-<p class="lead">{len(cards)} structures vanilla 1.20.1 (format Sponge .schem) pour le monde enneigé : vaisseaux écrasés, labos abandonnés, ville tech des salopards, camps d'exploration et bonus. Rendu isométrique approximatif (sans textures).</p>
-<nav>{''.join(f'<a href="#{n}">{catalog.get(n, {}).get("title", n)}</a>' for n in names if os.path.exists(os.path.join(PREV, n + "_iso.png")))}</nav>
-{''.join(cards)}
-</main></body></html>"""
+:root{{--bg:#f6f2f8;--card:#fffdff;--ink:#2a2236;--muted:#75688a;--accent:#7f63c9;--accent2:#c97fb0;--line:#e4d9ee;--chip:#efe8f7;
+  --display:"Sora",system-ui,sans-serif;--body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}}
+@media (prefers-color-scheme: dark){{:root:not([data-theme="light"]){{--bg:#171220;--card:#211a2c;--ink:#efe7f7;--muted:#a898bd;--accent:#b79cf2;--accent2:#e39ccb;--line:#362c47;--chip:#2c2439;color-scheme:dark}}}}
+:root[data-theme="dark"]{{--bg:#171220;--card:#211a2c;--ink:#efe7f7;--muted:#a898bd;--accent:#b79cf2;--accent2:#e39ccb;--line:#362c47;--chip:#2c2439;color-scheme:dark}}
+body{{background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);padding:0 16px}}
+.wrap{{max-width:1080px;margin:0 auto;padding-block:28px 60px}}
+h1{{font:700 clamp(1.7rem,4vw,2.4rem)/1.1 var(--display);margin:0 0 8px;text-wrap:balance}}
+.lead{{color:var(--muted);max-width:70ch;margin:0 0 18px}}
+.stats{{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:.9rem;margin:0 0 22px;font-variant-numeric:tabular-nums}}
+nav{{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 34px}}
+nav a{{color:var(--accent);text-decoration:none;background:var(--chip);border-radius:999px;padding:6px 14px;font-size:.9rem;font-weight:600}}
+nav a:focus-visible,summary:focus-visible{{outline:2px solid var(--accent2);outline-offset:2px}}
+.cat h2{{font:600 1.35rem/1.2 var(--display);margin:0 0 14px;padding-top:8px;border-top:1px solid var(--line)}}
+.cards{{display:grid;gap:22px;margin:0 0 36px}}
+.card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}}
+.card h3{{font:600 1.15rem/1.25 var(--display);margin:0 0 6px}}
+.meta{{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}}
+.meta code{{font:.85rem var(--mono);color:var(--accent)}}
+.meta .paste{{color:var(--accent2);font-weight:600}}
+.card p{{margin:10px 0 14px;color:var(--ink)}}
+.card img{{width:100%;height:auto;max-width:100%;border-radius:10px;display:block;border:1px solid var(--line)}}
+details{{margin-top:12px}} summary{{cursor:pointer;color:var(--accent);font-weight:600}}
+details img{{margin-top:10px;max-width:520px}}
+footer{{color:var(--muted);font-size:.85rem;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}}
+@media (prefers-reduced-motion:no-preference){{a{{transition:opacity .15s}}}}
+</style>
+<div class="wrap">
+<h1>Schematics Neige</h1>
+<p class="lead">Pack de {len(names)} structures vanilla 1.20.1 (format Sponge .schem, WorldEdit / FAWE / Litematica) pour le monde enneigé au ciel rose : vaisseaux écrasés, laboratoires abandonnés, ville tech des salopards, camps d'exploration et bonus. Les rendus sont isométriques et sans textures : en jeu, avec les textures et les shaders, tout est plus riche.</p>
+<div class="stats"><span>{len(names)} schematics</span><span>{total_blocks:,} blocs au total</span><span>tous les blocs sont vanilla 1.20.1</span></div>
+<nav>{nav}</nav>
+{''.join(sections)}
+<footer>Rendu : rot 0 = caméra au sud-est, rot 1 = nord-est, rot 2 = nord-ouest, rot 3 = sud-ouest. Vue de dessus : nord en haut, est à droite. Généré avec les outils du dépôt (<code>python3 -m tools.gallery</code>).</footer>
+</div>
+"""
     with open(out, "w") as f:
         f.write(html)
     return out

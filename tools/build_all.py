@@ -45,8 +45,18 @@ def run(modules, render=True, tw=16):
                 rep["files"] = [path] + paths
             summary[name] = rep
         print(f"  ({mod_name}: {time.time() - t0:.1f}s)")
-    with open(os.path.join(ROOT, "previews", "_summary.json"), "w") as f:
-        json.dump(summary, f, indent=1, default=str)
+    path = os.path.join(ROOT, "previews", "_summary.json")
+    merged = {}
+    try:
+        with open(path) as f:
+            merged = json.load(f)
+    except Exception:
+        merged = {}
+    merged.update(summary)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(merged, f, indent=1, default=str)
+    os.replace(tmp, path)
     return ok_all, summary
 
 
