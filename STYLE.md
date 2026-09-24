@@ -33,6 +33,10 @@ research sites, a frozen alien skeleton, a beacon tower, a mech wreck...).
 * **Gradient texturing.** Big hull/wall surfaces: 70 % primary, 25 % a close shade, 5 % a third
   (`sh.texturize(s, "light_gray_concrete", [("light_gray_concrete", 7), ("white_concrete", 2), ("quartz_block", 1)])`).
   Keep variants *close* in colour - noise, not camouflage.
+* **White on white does not read.** Snow is white, so every pale build needs a dark *structure* layer
+  (polished deepslate / blackstone / iron ribs, trims, undersides, keels) that draws the silhouette, and pale
+  surfaces are textured only with CLOSE shades (`MIX_WHITE`, `MIX_LIGHT_GRAY`, `MIX_DARK`... in `tools/palette.py`).
+  Never checkerboard two contrasting blocks.
 * **Bevel the edges.** Stairs (`half=top` under overhangs) and slabs to round hull edges, roof edges, pod tops.
 * **Thin blocks are the detail language:** iron trapdoors (vents/panels), buttons (rivets/switches), walls & fences
   (railings, struts), chains (cables, axis=x/z to run horizontally), end rods & lightning rods (antennas, pins),

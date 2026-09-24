@@ -130,11 +130,13 @@ def _is_full_opaque(block: str) -> bool:
     return len(boxes) == 1 and boxes[0] == (0, 0, 0, 1, 1, 1)
 
 
-@lru_cache(maxsize=8192)
-def _sprite(block: str, tw: int) -> Image.Image:
+@lru_cache(maxsize=16384)
+def _sprite(block: str, tw: int, shadow: bool = False) -> Image.Image:
     th = tw // 2
     bh = tw // 2
     color = block_color(block)
+    if shadow and not is_emissive(block):
+        color = tuple(int(c * 0.74) for c in color)
     emis = is_emissive(block)
     trans = is_transparent(block)
     alpha = 120 if trans else 255
@@ -186,14 +188,20 @@ def render_iso(s: Schematic, rot: int = 0, tw: int = 16, bg: bool = True, crop: 
     hidden = pad[1:, :H, :L] & pad[:W, 1:, :L] & pad[:W, :H, 1:]
     xs, ys, zs = np.nonzero((ids != 0) & ~hidden)
     order = np.argsort(xs + ys + zs, kind="stable")
+    # drop shadow: a block with something within 8 blocks straight above it is drawn darker
+    nz = ids != 0
+    above = np.zeros_like(nz)
+    for dy in range(1, 9):
+        above[:, :H - dy, :] |= nz[:, dy:, :]
     sprites = {}
     names = s.blocks_by_id
     for i in order:
         x, y, z = int(xs[i]), int(ys[i]), int(zs[i])
         pid = int(ids[x, y, z])
-        spr = sprites.get(pid)
+        sh_ = bool(above[x, y, z])
+        spr = sprites.get((pid, sh_))
         if spr is None:
-            spr = sprites[pid] = _sprite(names[pid], tw)
+            spr = sprites[(pid, sh_)] = _sprite(names[pid], tw, sh_)
         left = ox + (x - z) * (tw // 2) - tw // 2
         top = oy + (x + z) * (th // 2) - (y + 1) * bh
         img.alpha_composite(spr, (left, top))
@@ -254,7 +262,8 @@ def _label(img: Image.Image, text: str) -> Image.Image:
 def render_views(s: Schematic, out_prefix: str, tw: int = 16, max_px: int = 2600) -> List[str]:
     """Write <prefix>_iso.png (2x2 grid of the 4 rotations) and <prefix>_plan.png. Returns the paths."""
     os.makedirs(os.path.dirname(os.path.abspath(out_prefix)) or ".", exist_ok=True)
-    # pick a tile size that keeps each view under max_px wide
+    # pick a tile size so each view is roughly 900-1300 px wide (detail for small builds, sanity for big ones)
+    tw = max(8, min(32, int(2200 / (s.w + s.l)) // 2 * 2))
     est = (s.w + s.l) * (tw // 2) + tw
     while est > max_px and tw > 6:
         tw -= 2

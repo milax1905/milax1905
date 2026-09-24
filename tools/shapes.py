@@ -432,7 +432,7 @@ def crater(s: Schematic, cx, cz, r, ground_y: int, floor: str, rim: str, ejecta:
                 h = int(round(rim_height * (1.35 - d) / 0.35 * (0.6 + 0.6 * n)))
                 for y in range(ground_y + 1, ground_y + 1 + h):
                     s.set(x, y, z, rim)
-            elif d <= 1.9 and n > 0.55:
+            elif d <= 1.9 and n > 0.72:
                 s.set(x, ground_y + 1, z, ejecta)
 
 
