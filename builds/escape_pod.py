@@ -1,78 +1,109 @@
-"""Crashed escape pod: a small lofted capsule nose-down in a crater, parachute cloth spread on the snow."""
+"""Escape pod: a conical re-entry capsule that landed hard in the snow. Sunk in its own crater, scorched heat shield,
+landing legs out, hatch open, parachute spread downwind, distress beacon blinking. Clean and readable."""
+import math
+
+import numpy as np
+
 from tools.schem import Schematic
 from tools import shapes as sh, states as st
 from tools.palette import SHIP, GROUND, MIX_WHITE, MIX_SCORCH
-import math
 
 
 def build():
-    W, H, L, G = 34, 16, 28, 4
+    W, H, L, G = 40, 22, 34, 4
     s = Schematic(W, H, L, ground=G)
+    cx, cz = 14, 15
     sh.ground_slab(s, G, GROUND["snow"], depth=5)
-    cx, cz = 13, 14
-    sh.crater(s, cx, cz, 7, G, SHIP["scorch"], GROUND["snow"], "minecraft:snow_block", depth=2, rim_height=1, seed=9)
+    sh.crater(s, cx, cz, 8, G, SHIP["scorch"], GROUND["snow"], "minecraft:snow_block", depth=2, rim_height=1, seed=9)
     sh.texturize(s, SHIP["scorch"], MIX_SCORCH, seed=3)
 
-    # capsule hull lofted along x, tilted look: nose (west) buried, tail raised
-    # sections: (x, cy, cz, ry, rz)
-    secs = [(6, 4.0, cz, 1.5, 1.5), (9, 5.0, cz, 3.0, 3.0), (14, 6.5, cz, 3.8, 3.8), (19, 8.0, cz, 3.2, 3.2), (22, 9.0, cz, 1.8, 1.8)]
-    hull = sh.loft(s, secs, SHIP["hull"], axis="x")
-    # dark heat-shield belly: lower third of the hull in polished deepslate, with a blackstone keel line
-    belly = hull.copy()
-    ys = __import__("numpy").arange(s.h)[None, :, None]
-    belly &= ys <= 5
-    sh.fill_mask(s, belly, SHIP["hull_dark"])
-    keel = hull & (ys <= 3)
-    sh.fill_mask(s, keel, SHIP["scorch"])
-    sh.fill_mask(s, sh.loft_mask(s, secs, "x", shrink=1.6), "air")
-    # trim line along the widest part of the hull (both sides) in dark blocks
-    for x in range(9, 22):
-        for zz in (cz - 4, cz + 4):
-            if s.get(x, 7, zz) != "minecraft:air":
-                s.set(x, 7, zz, SHIP["frame_dark"])
-    # keep crater floor under the pod
-    # engine ring at the tail
-    sh.cylinder(s, 22, 8.5, cz, 2.2, 1, SHIP["frame_dark"], axis="x", hollow=True, thickness=1.2)
-    sh.cylinder(s, 23, 8.5, cz, 1.4, 1, SHIP["engine_core"], axis="x")
-    s.set(24, 9, cz, st.campfire(soul=True, facing="west"))
-    # ribs
-    for x in (10, 15, 19):
-        m = sh.loft_mask(s, secs, "x", shrink=-0.6) & ~sh.loft_mask(s, secs, "x", shrink=0.4)
-        m[:x, :, :] = False
-        m[x + 1:, :, :] = False
-        sh.fill_mask(s, m, SHIP["frame"])
-    # window strip + hatch (top side, blown open)
-    sh.box(s, 12, 8, cz - 3, 16, 8, cz - 3, SHIP["glass"])
-    sh.box(s, 12, 8, cz + 3, 16, 8, cz + 3, SHIP["glass"])
-    sh.box(s, 12, 9, cz - 1, 15, 11, cz + 1, "air")  # hatch opening
-    s.set(16, 11, cz, st.trapdoor("iron", "west", "top", open=True))
-    # interior: seat, light, chest
-    s.set(13, 5, cz, st.stairs("polished_deepslate", "west"))
-    s.set(15, 6, cz - 1, SHIP["light_rod"])
-    s.add_chest(17, 6, cz + 1, "west", "minecraft:chests/shipwreck_supply")
-    # hull texture + bevels on the mid-belly
-    s.replace({SHIP["hull"]: SHIP["hull_light"]})
-    sh.texturize(s, SHIP["hull_light"], MIX_WHITE, seed=5)
-    sh.erode(s, 6, 3, cz - 4, 11, 9, cz + 4, prob=0.5, only=["concrete", "quartz"], seed=8)  # crushed nose
-    # thrown-off hatch panel + debris trail heading east (direction of travel was west)
-    sh.box(s, 24, G + 1, 6, 26, G + 1, 7, SHIP["hull"])
-    s.set(25, G + 2, 6, st.stairs(SHIP["hull_stairs"], "north", "top"))
-    sh.scatter(s, 16, 2, 32, 26, [SHIP["damage_fill"], SHIP["frame"], "minecraft:polished_basalt[axis=y]", SHIP["scorch_light"]], 18, seed=4)
-    # parachute: white/light-gray wool cloth draped on the snow, lines (chains) to the tail
-    for dx in range(0, 12):
-        for dz in range(-6, 7):
-            x, z = 21 + dx, cz + 9 + dz
-            r = (dx / 11.0) ** 2 + (dz / 6.0) ** 2
+    base = G - 1                      # capsule bottom sits on the crater floor (G-2) + 1
+    # --- heat shield (dark, wide) and its bevelled rim
+    sh.cylinder(s, cx, base, cz, 5.5, 0, SHIP["hull_dark"], axis="y")
+    sh.cylinder(s, cx, base, cz, 4.5, 0, "minecraft:blackstone", axis="y")
+    sh.ring_stairs(s, cx, base, cz, 6.3, SHIP["hull_stairs"], half="top")          # rim bevel under the edge
+    # --- body: frustum widening from the shield to the shoulder, then the nose cone
+    sh.cylinder(s, cx, base + 1, cz, 5.5, 5, SHIP["hull_light"], axis="y", r2=4.6)      # y base+1 .. base+6
+    sh.cylinder(s, cx, base + 7, cz, 4.2, 4, SHIP["hull_light"], axis="y", r2=1.6)      # nose cone base+7..base+11
+    sh.cylinder(s, cx, base + 6, cz, 4.8, 0, SHIP["hull_dark"], axis="y")                # dark shoulder band
+    sh.ring_stairs(s, cx, base + 6, cz, 5.3, SHIP["hull_stairs"], half="top")            # thin lip under the shoulder
+    sh.ring_stairs(s, cx, base + 12, cz, 1.8, "quartz", half="bottom")                   # nose tip bevel
+    s.set(cx, base + 12, cz, "minecraft:iron_block")
+    # lavender accent band + iron ribs on the body
+    sh.cylinder(s, cx, base + 3, cz, 5.2, 0, "minecraft:purpur_block", axis="y", hollow=True, thickness=1.2)
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        for y in range(base + 1, base + 7):
+            r = 5.5 - (y - base - 1) * 0.18
+            x, z = round(cx + r * math.cos(a)), round(cz + r * math.sin(a))
+            s.set(x, y, z, "minecraft:iron_block")
+    # hollow interior + floor
+    sh.cylinder(s, cx, base + 2, cz, 3.8, 4, "air", axis="y", r2=3.0)
+    sh.cylinder(s, cx, base + 7, cz, 2.6, 2, "air", axis="y", r2=1.0)
+    sh.cylinder(s, cx, base + 1, cz, 3.8, 0, "minecraft:light_gray_concrete", axis="y")
+    # windows (3 round-ish ports on the north side, tinted)
+    for dx in (-2, 0, 2):
+        for y in (base + 4,):
+            z = cz - 5 + (1 if dx else 0)
+            s.set(cx + dx, y, z, SHIP["glass"])
+    # hatch on the south side, blown open: opening 2 wide x 3 high + door lying as an open trapdoor + step
+    sh.box(s, cx - 1, base + 2, cz + 4, cx, base + 4, cz + 6, "air")
+    s.set(cx - 1, base + 2, cz + 6, st.stairs(SHIP["hull_stairs"], "north"))
+    s.set(cx, base + 2, cz + 6, st.stairs(SHIP["hull_stairs"], "north"))
+    s.set(cx + 1, base + 3, cz + 5, st.trapdoor("iron", "west", "top", open=True))
+    s.set(cx - 2, base + 3, cz + 5, st.trapdoor("iron", "east", "top", open=True))
+    # interior: 2 seats, console, light, supplies
+    s.set(cx - 2, base + 2, cz - 1, st.stairs("polished_deepslate", "east"))
+    s.set(cx + 2, base + 2, cz - 1, st.stairs("polished_deepslate", "west"))
+    s.set(cx, base + 2, cz - 3, "minecraft:daylight_detector")
+    s.set(cx, base + 3, cz - 3, st.redstone_lamp(True))
+    s.set(cx, base + 6, cz, SHIP["light"])
+    s.add_chest(cx + 2, base + 2, cz + 2, "west", "minecraft:chests/shipwreck_supply")
+    s.set(cx - 2, base + 2, cz + 2, "minecraft:barrel[facing=up,open=false]")
+    # docking collar + antennas on top
+    sh.cylinder(s, cx, base + 11, cz, 1.6, 0, SHIP["frame_dark"], axis="y", hollow=True, thickness=1.0)
+    s.set(cx, base + 13, cz, st.lightning_rod("up"))
+    s.set(cx, base + 14, cz, st.lightning_rod("up"))
+    for dx, dz in ((3, 0), (-3, 0)):
+        s.set(cx + dx, base + 9, cz + dz, st.end_rod("up"))
+    s.set(cx, base + 8, cz - 3, SHIP["light"])                       # beacon
+    s.set(cx, base + 8, cz - 4, "minecraft:red_stained_glass")
+    # --- landing legs (3, at 120 degrees) - one buried under a snow drift
+    for k in range(3):
+        a = math.pi / 2 + k * 2 * math.pi / 3 + 0.35
+        p1 = (round(cx + 5.0 * math.cos(a)), base + 2, round(cz + 5.0 * math.sin(a)))
+        p2 = (round(cx + 8.5 * math.cos(a)), base - 1, round(cz + 8.5 * math.sin(a)))
+        sh.line(s, p1, p2, SHIP["frame_dark"])
+        s.set(p2[0], p2[1], p2[2], st.slab("polished_deepslate"))
+        sh.sphere(s, p2[0], p2[1] - 1, p2[2], 1.2, "minecraft:blackstone")
+    # --- parachute downwind (east), lines from the docking collar
+    pc_x, pc_z = cx + 17, cz + 3
+    for dx in range(-7, 8):
+        for dz in range(-9, 10):
+            x, z = pc_x + dx, pc_z + dz
+            r = (dx / 7.0) ** 2 + (dz / 9.0) ** 2
             if r <= 1.0 and s.inside(x, G + 1, z):
-                ang = math.atan2(dz, dx + 0.01)
-                s.set(x, G + 1, z, "minecraft:light_gray_wool" if int((ang + math.pi) / (math.pi / 4)) % 2 else "minecraft:white_wool")
-    for i in range(1, 6):
-        s.set(21, 8 - i + 1, cz + 1 + i, st.log("minecraft:chain", "z"))
-    s.set(21, 9, cz, "minecraft:iron_bars")
-    # antenna + blinking light on the tail
-    s.set(22, 11, cz, st.lightning_rod("up"))
-    s.set(22, 10, cz, SHIP["light"])
-    # signage: distress
-    s.add_sign(17, 7, cz - 3, "minecraft:warped_wall_sign[facing=north]", ["POD 7", "MAYDAY", "ejected T+3s", ""])
-    sh.snow_cover(s, y_min=G + 1, prob=0.3, seed=2, skip=["wool"])
-    return {"escape_pod": s}
+                sector = int((math.atan2(dz, dx) + math.pi) / (math.pi / 4)) % 8
+                blk = "minecraft:white_wool" if sector % 2 == 0 else "minecraft:light_gray_wool"
+                if 0.7 < r <= 1.0 and sector % 2 == 0:
+                    blk = "minecraft:cyan_wool" if (dx + dz) % 4 == 0 else blk
+                s.set(x, G + 1, z, blk)
+    # fabric folds: a few slabs on top of the canopy
+    for (dx, dz) in ((-3, -4), (1, 2), (3, -1), (-1, 5), (4, 4)):
+        s.set(pc_x + dx, G + 2, pc_z + dz, st.slab("smooth_quartz"))
+    for i in range(1, 8):                                   # shroud lines: chains from the collar to the canopy
+        y = base + 11 - i
+        s.set(cx + i, max(G + 1, y), cz + (i // 3), st.log("minecraft:chain", "x"))
+    # --- debris: heat-shield fragments and a dropped panel, footprints away from the hatch
+    sh.scatter(s, 2, 2, W - 3, L - 3, ["minecraft:blackstone", SHIP["hull_dark"], "minecraft:iron_block",
+                                       st.slab("polished_deepslate")], 14, seed=4)
+    for i in range(1, 9):
+        x, z = cx - 1 + (i % 2), cz + 7 + i
+        if s.inside(x, G, z) and s.get(x, G, z) == GROUND["snow"]:
+            s.set(x, G, z, "minecraft:white_concrete_powder")
+    # texture + weathering
+    sh.texturize(s, SHIP["hull_light"], MIX_WHITE, seed=5)
+    sh.snow_cover(s, y_min=G + 1, prob=0.2, seed=2, skip=["wool", "glass", "iron", "purpur", "lamp", "quartz", "calcite", "white_concrete"])
+    s.add_sign(cx + 2, base + 3, cz + 6, "minecraft:warped_wall_sign[facing=south]", ["CAPSULE 7", "MAYDAY", "2 survivants", "partis vers N"])
+    s.set(cx + 6, G + 1, cz - 6, st.campfire(soul=True))       # last fire the survivors lit
+    return {"escape_pod": s.cropped(pad=1)}

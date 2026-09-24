@@ -164,9 +164,12 @@ def block_color(block: str) -> Tuple[int, int, int]:
                 return v
     # derived materials (stairs / slab / wall / bricks / tiles / pillar / smooth / cut ...)
     for suf in ("_stairs", "_slab", "_wall", "_fence_gate", "_fence", "_button", "_pressure_plate", "_trapdoor", "_door",
-                "_sign", "_wall_sign", "_hanging_sign", "_wall_hanging_sign", "s", "_tiles", "_bricks", "_block"):
-        if short.endswith(suf) and short[: -len(suf)] in _C:
-            return _C[short[: -len(suf)]]
+                "_wall_hanging_sign", "_hanging_sign", "_wall_sign", "_sign", "_tiles", "_bricks", "_block", "s"):
+        if short.endswith(suf):
+            base = short[: -len(suf)]
+            for cand in (base, base + "_block", base + "s", base + "_bricks", base + "_tiles"):
+                if cand in _C:
+                    return _C[cand]
     for pre in ("waxed_", "stripped_", "cracked_", "chiseled_", "mossy_", "smooth_", "cut_", "polished_", "infested_", "dead_"):
         if short.startswith(pre):
             return block_color(short[len(pre):])

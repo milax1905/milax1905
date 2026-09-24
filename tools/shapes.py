@@ -627,3 +627,47 @@ def light_strip(s: Schematic, p1: Vec, p2: Vec, block: str = "minecraft:sea_lant
     for i in range(0, n + 1, every):
         t = i / n
         s.set(round(x1 + (x2 - x1) * t), round(y1 + (y2 - y1) * t), round(z1 + (z2 - z1) * t), block)
+
+
+# ------------------------------------------------------------------------- rounded edges
+def _facing_to_center(dx: float, dz: float) -> str:
+    if abs(dx) >= abs(dz):
+        return "west" if dx > 0 else "east"
+    return "north" if dz > 0 else "south"
+
+
+def ring_stairs(s: Schematic, cx: float, y: int, cz: float, r: float, material: str, half: str = "bottom",
+                outward: bool = False, only_air: bool = True) -> None:
+    """A ring of stairs (radius r, at height y) whose tall side faces the centre (bevel for cylinder tops /
+    heat-shield rims / dome bases). outward=True flips them (tall side away from the centre)."""
+    for x in range(s.w):
+        for z in range(s.l):
+            d = math.hypot(x + 0.5 - (cx + 0.5), z + 0.5 - (cz + 0.5))
+            if r - 0.5 <= d <= r + 0.5:
+                f = _facing_to_center(x - cx, z - cz)
+                if outward:
+                    f = {"north": "south", "south": "north", "east": "west", "west": "east"}[f]
+                if only_air and not s.is_air(x, y, z):
+                    continue
+                s.set(x, y, z, st.stairs(material, f, half))
+
+
+def ring_slabs(s: Schematic, cx: float, y: int, cz: float, r: float, material: str, type: str = "bottom", only_air=True) -> None:
+    for x in range(s.w):
+        for z in range(s.l):
+            d = math.hypot(x + 0.5 - (cx + 0.5), z + 0.5 - (cz + 0.5))
+            if r - 0.5 <= d <= r + 0.5:
+                if only_air and not s.is_air(x, y, z):
+                    continue
+                s.set(x, y, z, st.slab(material, type))
+
+
+def box_edge_stairs(s: Schematic, x1, y, z1, x2, z2, material: str, half: str = "top") -> None:
+    """Stairs all around the outside of a rectangle at height y, tall side toward the box (bevels a roof edge
+    with half='bottom' at the top, or an overhang underside with half='top')."""
+    for x in range(x1, x2 + 1):
+        s.set(x, y, z1 - 1, st.stairs(material, "south", half))
+        s.set(x, y, z2 + 1, st.stairs(material, "north", half))
+    for z in range(z1, z2 + 1):
+        s.set(x1 - 1, y, z, st.stairs(material, "east", half))
+        s.set(x2 + 1, y, z, st.stairs(material, "west", half))
