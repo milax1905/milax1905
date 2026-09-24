@@ -117,7 +117,14 @@ class Schematic:
                 self.data[self.data == self.palette[src_n]] = self.pid(dst_n)
 
     def paste(self, other: "Schematic", ox: int, oy: int, oz: int, skip_air: bool = True) -> None:
-        """Paste another schematic at offset (ox,oy,oz) (other's (0,0,0) lands there)."""
+        """Paste another schematic at offset (ox,oy,oz) (other's (0,0,0) lands there). Block entities are carried."""
+        self.block_entities = [e for e in self.block_entities
+                               if not (ox <= e["Pos"][0] < ox + other.w and oy <= e["Pos"][1] < oy + other.h and oz <= e["Pos"][2] < oz + other.l)
+                               or (skip_air and other.data[e["Pos"][0] - ox, e["Pos"][1] - oy, e["Pos"][2] - oz] == 0)]
+        for e in other.block_entities:
+            px, py, pz = e["Pos"][0] + ox, e["Pos"][1] + oy, e["Pos"][2] + oz
+            if self.inside(px, py, pz):
+                self.block_entities.append(dict(e, Pos=[px, py, pz]))
         for i, b in enumerate(other.blocks_by_id):
             if i == 0 and skip_air:
                 continue
@@ -138,6 +145,13 @@ class Schematic:
         for _ in range(k):
             d = np.transpose(d, (2, 1, 0))[::-1, :, :]
         out.data = np.ascontiguousarray(d)
+        for e in self.block_entities:
+            x, y, z = e["Pos"]
+            w_, l_ = self.w, self.l
+            for _ in range(k):
+                x, z = l_ - 1 - z, x
+                w_, l_ = l_, w_
+            out.block_entities.append(dict(e, Pos=[x, y, z]))
         out.palette = {}
         out.blocks_by_id = []
         for b in self.blocks_by_id:
@@ -202,7 +216,7 @@ class Schematic:
             lines.append("")
         self.block_entities.append({
             "Pos": [int(x), int(y), int(z)],
-            "Id": "minecraft:sign",
+            "Id": "minecraft:hanging_sign" if "hanging_sign" in block else "minecraft:sign",
             "front_text": {"messages": ['{"text":"%s"}' % l.replace('"', '\\"') for l in lines],
                             "color": "black", "has_glowing_text": False},
             "back_text": {"messages": ['{"text":""}'] * 4, "color": "black", "has_glowing_text": False},
@@ -265,8 +279,10 @@ class Schematic:
             "BlockData": tag.ByteArray(np.frombuffer(self._encode_blockdata(), dtype=np.int8)),
             "BlockEntities": bes,
             "Metadata": tag.Compound({
+                # //paste puts the clipboard origin at the player's feet (the air block above the surface):
+                # the schematic's ground layer (y = ground) must land one block below that.
                 "WEOffsetX": tag.Int(-(self.w // 2)),
-                "WEOffsetY": tag.Int(-self.ground),
+                "WEOffsetY": tag.Int(-(self.ground + 1)),
                 "WEOffsetZ": tag.Int(-(self.l // 2)),
             }),
         })
@@ -310,11 +326,36 @@ class Schematic:
         s.data = np.transpose(lut[arr], (2, 0, 1)).copy()
         meta = root.get("Metadata")
         if meta is not None and "WEOffsetY" in meta:
-            s.ground = -int(meta["WEOffsetY"])
+            s.ground = -int(meta["WEOffsetY"]) - 1
+        for be in root.get("BlockEntities", []):
+            e = {"Pos": [int(v) for v in be["Pos"]], "Id": str(be["Id"])}
+            for k, v in be.items():
+                if k in ("Pos", "Id"):
+                    continue
+                e[k] = _from_tag(v)
+            s.block_entities.append(e)
         return s
 
     def __repr__(self) -> str:
         return f"Schematic({self.w}x{self.h}x{self.l}, blocks={self.count()}, palette={len(self.palette)})"
+
+
+def _from_tag(v):
+    if isinstance(v, tag.Compound):
+        return {k: _from_tag(x) for k, x in v.items()}
+    if isinstance(v, tag.List):
+        return [_from_tag(x) for x in v]
+    if isinstance(v, tag.Byte):
+        return bool(int(v))  # bytes are only used for booleans in our block entities
+    if isinstance(v, (tag.Short, tag.Int, tag.Long)):
+        return int(v)
+    if isinstance(v, (tag.Float, tag.Double)):
+        return float(v)
+    if isinstance(v, tag.String):
+        return str(v)
+    if isinstance(v, (tag.IntArray, tag.ByteArray, tag.LongArray)):
+        return [int(x) for x in v]
+    return v
 
 
 def _to_tag(v):

@@ -5,8 +5,8 @@ render_views(schem, "previews/name")  ->  previews/name_iso.png (4 rotations) + 
 render_iso(schem, rot=0, tw=16)       ->  PIL.Image of one rotation
 
 Rotation 0 looks at the build from the south-east corner: the +x (east) face is drawn on the right,
-the +z (south) face on the left. Rotation k rotates the build k*90 degrees clockwise before rendering, so
-rot 1 shows the south-west corner... (all four sides are visible across the 4 views).
+the +z (south) face on the left. Rotation k rotates the build k*90 degrees clockwise before rendering, so the
+camera sits at the NE corner for rot 1, NW for rot 2 and SW for rot 3 (all four sides are visible).
 """
 from __future__ import annotations
 
@@ -191,7 +191,7 @@ def render_iso(s: Schematic, rot: int = 0, tw: int = 16, bg: bool = True, crop: 
     # drop shadow: a block with something within 8 blocks straight above it is drawn darker
     nz = ids != 0
     above = np.zeros_like(nz)
-    for dy in range(1, 9):
+    for dy in range(1, min(9, H)):
         above[:, :H - dy, :] |= nz[:, dy:, :]
     sprites = {}
     names = s.blocks_by_id
@@ -271,7 +271,8 @@ def render_views(s: Schematic, out_prefix: str, tw: int = 16, max_px: int = 2600
     views = []
     for r in range(4):
         im = render_iso(s, rot=r, tw=tw)
-        corner = ["SE: east face right, south left", "SW", "NW", "NE"][r]
+        corner = ["SE: east face right, south face left", "NE: north face right, east face left",
+                  "NW: west face right, north face left", "SW: south face right, west face left"][r]
         views.append(_label(im, f"rot {r} - camera {corner}"))
     w = max(v.width for v in views)
     h = max(v.height for v in views)

@@ -105,3 +105,20 @@ Other helpers: `sh.hollow_box`, `sh.room`, `sh.ellipsoid`, `sh.sphere`, `sh.dome
 - [ ] Interior exists, is lit, walkable, furnished (for anything with a door/breach).
 - [ ] Ground integration: the base sits *in* the snow (bury 1-2 blocks / crater), not on a floating slab of snow.
 - [ ] `python3 -m tools.build_all <name>` prints OK with no warnings you can fix.
+
+## Lessons from round 1 (read before revising)
+* The renderer camera: rot 0 = from the south-east (east face right, south face left), rot 1 = from the north-east,
+  rot 2 = north-west, rot 3 = south-west. Use the plan view (north up, east right) to place things.
+* A lofted hull's *interior* is much narrower at floor level than the section radius suggests: plan furniture
+  from the carved mask, not the radii. Decks/floors inside lofts: fill the mask below a y level.
+* "Popcorn" hulls: stair bevels on every loft ring + a 3-shade texture + dense snow layers make a lumpy mess.
+  Bevel only true silhouette edges, use slabs on top surfaces, 2 close shades, snow only on the leeward ridge.
+* Chains for cables: horizontal chain (axis x/z) reads as a cable; a staircase of alternating chain segments
+  reads as floating dashes. Run cables straight, on crossbar arms, or as a single vertical drop.
+* Big single dark/coloured cubes on white snow read as debris/mistakes (yellow cubes, black blobs, cyan
+  lanterns). Every accent block needs a frame, a post or a purpose.
+* Sea lanterns must never show a bare face on a dark build: cap them with purple/tinted glass or sink them.
+* Diagonal lines of thin blocks (chains, bars) are only corner-adjacent: they render (and read) as dotted lines.
+* `Schematic.paste/rotated/cropped/load` now carry block entities (signs, loot chests). `st.door()` validates.
+* `sh.snow_cover` now covers snow_block (not snow layers); it never covers stairs/slabs (vanilla rule).
+* Doors: `st.door("iron", facing, half="lower"/"upper", ...)`; trapdoors use half top/bottom.

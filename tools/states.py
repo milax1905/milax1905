@@ -277,7 +277,7 @@ smooth_sandstone smooth_red_sandstone red_sandstone chiseled_red_sandstone cut_r
 smooth_stone end_rod glass_pane oak_leaves spruce_leaves birch_leaves jungle_leaves acacia_leaves dark_oak_leaves
 mangrove_leaves azalea_leaves flowering_azalea_leaves oak_sapling spruce_sapling birch_sapling jungle_sapling
 acacia_sapling dark_oak_sapling moving_piston bubble_column water lava kelp dried_kelp_block dead_bush
-netherite_block cracked_nether_bricks iron_door oak_door
+netherite_block cracked_nether_bricks iron_door oak_door composter
 """
 _BLOCKS = set()
 for w_ in _MISC.split():
@@ -326,7 +326,9 @@ _PROPS: Dict[str, Dict[str, set]] = {}
 
 def _schema(names: List[str], **props):
     for n in names:
-        _PROPS.setdefault(n, {}).update(props)
+        d = _PROPS.setdefault(n, {})
+        for k, v in props.items():
+            d[k] = d.get(k, set()) | set(v)
 
 
 _all = sorted(_BLOCKS)
@@ -425,6 +427,12 @@ _schema(["tnt"], unstable=_BOOL)
 _schema(["note_block"], instrument=_PROPS["jukebox"]["instrument"], note={str(i) for i in range(25)}, powered=_BOOL)
 _schema(["farmland"], moisture={str(i) for i in range(8)})
 _schema(["copper_bulb"], lit=_BOOL, powered=_BOOL)
+
+
+for _n in [b for b in _BLOCKS if b.endswith("_door")]:
+    _PROPS[_n]["half"] = {"upper", "lower"}
+for _n in [b for b in _BLOCKS if b.endswith("_trapdoor")]:
+    _PROPS[_n]["half"] = {"top", "bottom"}
 
 
 def validate_block(block: str) -> Optional[str]:

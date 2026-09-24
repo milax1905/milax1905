@@ -20,7 +20,7 @@ GROUND = {
 
 # ---- gradient mixes: CLOSE shades only (use with shapes.texturize). Never mix white with light_gray: it reads as noise.
 MIX_WHITE = [("minecraft:white_concrete", 6), ("minecraft:quartz_block", 2), ("minecraft:smooth_quartz", 1), ("minecraft:calcite", 1)]
-MIX_LIGHT_GRAY = [("minecraft:light_gray_concrete", 6), ("minecraft:light_gray_concrete_powder", 2), ("minecraft:polished_andesite", 1), ("minecraft:cyan_terracotta", 0)]
+MIX_LIGHT_GRAY = [("minecraft:light_gray_concrete", 7), ("minecraft:polished_andesite", 2), ("minecraft:smooth_stone", 1)]   # no gravity blocks (concrete powder falls)
 MIX_DARK = [("minecraft:polished_deepslate", 5), ("minecraft:deepslate_tiles", 2), ("minecraft:polished_basalt[axis=y]", 1)]
 MIX_BLACK = [("minecraft:polished_blackstone_bricks", 6), ("minecraft:polished_blackstone", 2), ("minecraft:cracked_polished_blackstone_bricks", 1), ("minecraft:deepslate_tiles", 1)]
 MIX_SCORCH = [("minecraft:blackstone", 5), ("minecraft:basalt", 2), ("minecraft:coal_block", 1), ("minecraft:polished_basalt", 1)]

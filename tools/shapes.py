@@ -285,8 +285,12 @@ def stair_ramp(s: Schematic, x, y, z, length: int, dir: str, material: str, widt
             s.set(x + dx * i + ox, y + i, z + dz * i + oz, st.stairs(material, dir))
 
 
-def roof_gable(s: Schematic, x1, y, z1, x2, z2, material: str, along: str = "x", overhang: int = 1, cap: Optional[str] = None) -> None:
-    """Simple gable roof of stairs over rect (x1..x2, z1..z2). `along` = ridge direction."""
+def roof_gable(s: Schematic, x1, y, z1, x2, z2, material: str, along: str = "x", overhang: int = 1, cap: Optional[str] = None,
+               fill: Optional[str] = None) -> None:
+    """Simple gable roof of stairs over rect (x1..x2, z1..z2). `along` = ridge direction.
+    `fill` = block used under the stairs inside the roof (default: <material>_planks / material)."""
+    if fill is None:
+        fill = (material + "_planks") if not material.endswith("planks") and "_" not in material else material
     x1, x2 = sorted((x1, x2)); z1, z2 = sorted((z1, z2))
     if along == "x":
         z1o, z2o = z1 - overhang, z2 + overhang
@@ -301,7 +305,7 @@ def roof_gable(s: Schematic, x1, y, z1, x2, z2, material: str, along: str = "x",
                 box(s, x1 - overhang, y + i, zl, x2 + overhang, y + i, zl, st.stairs(material, "south"))
                 box(s, x1 - overhang, y + i, zr, x2 + overhang, y + i, zr, st.stairs(material, "north"))
                 if zl + 1 < zr and i > 0:
-                    box(s, x1 - overhang, y + i - 1, zl + 1, x2 + overhang, y + i - 1, zr - 1, (material + "_planks") if not material.endswith("planks") and "_" not in material else material)
+                    box(s, x1 - overhang, y + i - 1, zl + 1, x2 + overhang, y + i - 1, zr - 1, fill)
     else:
         x1o, x2o = x1 - overhang, x2 + overhang
         depth = (x2o - x1o + 1) // 2
@@ -353,7 +357,8 @@ def snow_cover(s: Schematic, x1=0, z1=0, x2=None, z2=None, y_min: int = 0, prob:
             if ty < y_min or ty + 1 >= s.h:
                 continue
             b = s.get(x, ty, z)
-            if any(k in b for k in non_solid) or any(k in b for k in skip):
+            short = b.split("[")[0].split(":")[-1]
+            if short == "snow" or any(k in b for k in non_solid if k != "snow") or any(k in b for k in skip):
                 continue
             if b.endswith("_slab]") or "type=top" in b:
                 continue
