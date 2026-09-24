@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+/previews/_smoke*
+/schematics/_smoke.schem
+/previews/_summary.json
+/.scratch/
