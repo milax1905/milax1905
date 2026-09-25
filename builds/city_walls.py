@@ -11,18 +11,23 @@ Common vertical profile (ground = 1):
   y 4 plinth bevel   y 5 magenta neon band (sea lanterns behind)   y 6..8 slits / vents   y 9 steel string course
   y 10..12 body (panels, chains)   y 13 purple neon line   y 14 walkway floor (lit strip)   y 15 railings (wall top)
 
-PLACEMENT (WorldEdit //paste puts the origin at (w//2, ground, l//2) of each file):
-  * The wall line is z=0..4 in the SEGMENT but z=2..6 in the CORNER and the GATE (their towers protrude 2 blocks
-    outward, toward -z). When pasting on a grid, offset the segment by +2 in z relative to a corner or a gate,
-    or paste the corner/gate 2 blocks further out (toward the enemy side).
+PLACEMENT / TILING ANCHOR (the three wall files carry a custom WorldEdit paste origin, see `Tile`):
+  * //paste puts the player's feet ON THE OUTER (enemy-side) FACE LINE of the wall, at the WEST END of the piece:
+      segment  anchor (x=0,  z=0)  -> piece spans 16 blocks east of the player, wall on the player's row and 4 south
+      gate     anchor (x=0,  z=2)  -> piece spans 24 blocks east; the towers stick out 2 blocks north of the player
+      corner   anchor (x=2,  z=2)  -> the point where the north and west outer face lines cross (inside the tower);
+                                     the seams are 14 blocks east and 14 blocks south of the player
+    So a straight north wall is: stand on the outer line, paste, walk 16 (segment) / 24 (gate) east, paste...
+    The outer face is always on the player's row: no z offset to remember. Y: feet on the snow surface.
   * Seam piers: segment x=0 and x=15, corner x=15 (east arm) and z=15 (south arm), gate x=0 and x=23.
-    Two butted seam piers form one 2-wide pier with a froglight lamp post on each side.
-  * Corner: outer faces look north (z=0) and west (x=0); use //rotate 90/180/270 for the other corners.
-  * Everything is symmetric, so //flip is safe.
+    Two butted seam piers form one 2-wide pier with a froglight set into the outer parapet corner.
+  * Corner: outer faces look north (z=0) and west (x=0); //rotate 90/180/270 around the anchor for the others.
+  * Everything is symmetric, so //flip is safe. The watchtower keeps the default (centre) anchor.
 """
 import numpy as np
+from nbtlib import tag
 
-from tools.schem import Schematic
+from tools.schem import Schematic, DATA_VERSION_1_20_1
 from tools import shapes as sh, states as st
 from tools.palette import VILLAIN, MIX_BLACK
 
@@ -40,10 +45,10 @@ LANT = "minecraft:sea_lantern"
 RAIL = VILLAIN["railing"]                       # polished_blackstone_brick_wall
 IRON = "minecraft:iron_block"
 BARS = "minecraft:iron_bars"
-PIPE = VILLAIN["pipe"]                          # oxidized copper
-PIPE_CUT = VILLAIN["pipe_cut"]
+PIPE = "minecraft:exposed_copper"               # low-saturation brown column (recessed in the body)
+PIPE_CUT = VILLAIN["pipe_cut"]                  # oxidized cut copper: only the joint and the spout
+CAB_GLASS = "minecraft:light_blue_stained_glass"   # the crystal shade of the world, for the watchtower cabin
 PURPUR = "minecraft:purpur_pillar"
-BONE = st.log("minecraft:bone_block", "x")
 CRYSTAL = "minecraft:amethyst_cluster[facing=up,waterlogged=false]"
 SIGN = "minecraft:warped_wall_sign"
 LADDER = "minecraft:ladder"
@@ -58,6 +63,23 @@ _OPP = {"north": "south", "south": "north", "west": "east", "east": "west", "up"
 _DIR = {"north": (0, 0, -1), "south": (0, 0, 1), "west": (-1, 0, 0), "east": (1, 0, 0), "up": (0, 1, 0), "down": (0, -1, 0)}
 
 
+# --------------------------------------------------------------------------------------- tiling anchor
+class Tile(Schematic):
+    """Schematic with an explicit WorldEdit paste anchor. The toolkit writes the anchor at the file centre
+    (w//2, l//2), which cannot line up pieces of different depth; here the block at (ax, ground+1, az) lands at
+    the player's feet on //paste. Everything else (data, block entities, ground) is the wrapped schematic's."""
+
+    def __init__(self, base: Schematic, ax: int, az: int):
+        self.__dict__.update(base.__dict__)
+        self.anchor = (int(ax), int(az))
+
+    def to_nbt(self, data_version: int = DATA_VERSION_1_20_1):
+        f = super().to_nbt(data_version)
+        f["Metadata"]["WEOffsetX"] = tag.Int(-self.anchor[0])
+        f["Metadata"]["WEOffsetZ"] = tag.Int(-self.anchor[1])
+        return f
+
+
 # --------------------------------------------------------------------------------------- helpers
 def vent(s, x, y, z, face):
     """Iron trapdoor lying flat against the wall behind it (a vent / access panel). `face` = outward direction."""
@@ -69,13 +91,16 @@ def leaf(s, x, y, z, hug):
     s.set(x, y, z, st.trapdoor("iron", _OPP[hug], "bottom", open=True))
 
 
-def frame_light(s, x, y, z):
-    """Searchlight: sea lantern in a frame of iron trapdoors (4 sides + lid)."""
+def frame_light(s, x, y, z, beams=()):
+    """Searchlight: sea lantern in a frame of iron trapdoors (sides + lid); the sides listed in `beams` get an
+    end rod pointing outward instead (the beam toward the enemy)."""
     s.set(x, y, z, LANT)
-    s.set(x, y, z - 1, st.trapdoor("iron", "north", "bottom", open=True))
-    s.set(x, y, z + 1, st.trapdoor("iron", "south", "bottom", open=True))
-    s.set(x - 1, y, z, st.trapdoor("iron", "west", "bottom", open=True))
-    s.set(x + 1, y, z, st.trapdoor("iron", "east", "bottom", open=True))
+    for face in ("north", "south", "west", "east"):
+        dx, _, dz = _DIR[face]
+        if face in beams:
+            s.set(x + dx, y, z + dz, st.end_rod(face))
+        else:
+            s.set(x + dx, y, z + dz, st.trapdoor("iron", face, "bottom", open=True))
     s.set(x, y + 1, z, st.trapdoor("iron", "north", "bottom", open=False))
 
 
@@ -87,8 +112,9 @@ def crystal_spike(s, x, y, z, post=2):
 
 
 def lamp_post(s, x, y, z):
+    """Froglight with a flat iron lid lying on it."""
     s.set(x, y, z, FROG)
-    s.set(x, y + 1, z, st.trapdoor("iron", "north", "top", open=False))
+    s.set(x, y + 1, z, st.trapdoor("iron", "north", "bottom", open=False))
 
 
 def neon(s, x, y, z, glass=GLASS):
@@ -96,10 +122,11 @@ def neon(s, x, y, z, glass=GLASS):
     s.set(x, y, z, glass)
 
 
-def wall_run(s, x0, x1, z0, piers, details=True):
+def wall_run(s, x0, x1, z0, piers, details=True, pipes=()):
     """Straight wall along x from x0..x1 (inclusive) occupying z0..z0+4. `piers` = x positions with the full
     5-thick profile; everything else is the recessed 3-thick body with two neon lines, a string course, slits,
-    vents, panels and the bevels. The outer face is at z0 (north), the city side at z0+4."""
+    vents, panels and the bevels. The outer face is at z0 (north), the city side at z0+4.
+    `pipes` = x positions (gap cells) of a drainage column on the city side, recessed flush with the piers."""
     za, zb = z0, z0 + 4
     for x in range(x0, x1 + 1):
         full = x in piers
@@ -155,20 +182,21 @@ def wall_run(s, x0, x1, z0, piers, details=True):
             s.set(x, Y_NEON, za, st.chain("y"))
             s.set(x, Y_NEON - 1, za, st.chain("y"))
             s.set(x, Y_NEON - 2, za, st.lantern(soul=True, hanging=True))
-        # copper drainage pipe on the inner face (city side): joint under the lip, column, spout bracket
-        px = ga + 1 if n < 7 else cx + 2
-        s.set(px, Y_FLOOR, zb, PIPE_CUT)
-        for y in range(Y_BODY0 + 1, Y_FLOOR):
-            s.set(px, y, zb, PIPE)
-        s.set(px, Y_COURSE, zb, PIPE_CUT)
-        s.set(px, Y_BODY0, zb, st.stairs("oxidized_cut_copper", "south", "top"))
         # inner face: access panels + a purple wall banner
         vent(s, cx - 1, 8, zb, "south")
         vent(s, cx - 1, 7, zb, "south")
         s.set(cx + 1, 11, zb, st.wall_banner("purple", "south"))
+    # drainage: exposed-copper column sitting in the body recess (flush with the pier face), oxidized joint
+    # under the walkway lip and an oxidized spout at the plinth; the middle of the column is hidden by a bracket
+    for px in pipes:
+        s.set(px, Y_FLOOR, zb, PIPE_CUT)
+        for y in range(Y_BODY0 + 1, Y_FLOOR):
+            s.set(px, y, zb, PIPE)
+        s.set(px, Y_COURSE, zb, "minecraft:exposed_cut_copper")
+        s.set(px, Y_BODY0, zb, st.stairs("oxidized_cut_copper", "south", "top"))
     for x in xs:
+        lamp_post(s, x, Y_RAIL, za)                                             # lamp set into the outer parapet
         for z in (za, zb):
-            lamp_post(s, x, Y_RAIL + 1, z)
             s.set(x, Y_COURSE, z, CHISEL)                                       # rib ornament on the course line
             s.set(x, Y_NEON, z, FROG)                                           # lamp under the overhang
 
@@ -189,11 +217,11 @@ def sculk_patch(s, cells, seed=0):
         s.set(x, y + 1, z, "minecraft:sculk_sensor")
 
 
-def tower(s, x0, z0, sx, sz, top, ladder_xz, flat_faces=()):
+def tower(s, x0, z0, sx, sz, top, ladder_xz, flat_faces=(), beams=("north",)):
     """Rectangular tower with 2x2 corner piers and recessed faces, 3 interior levels
     (ground y2..8, mid y10..13, top y15..roof-1), a ladder through every floor, parapet + crystal crown + searchlight.
     x0,z0 = min corner; top = y of the parapet (roof floor = top-1). flat_faces get no recess (use it for faces
-    hidden behind an abutting wall or forming a flat flank)."""
+    hidden behind an abutting wall or forming a flat flank). `beams` = searchlight beam directions (enemy side)."""
     x1, z1 = x0 + sx - 1, z0 + sz - 1
     ix0, ix1, iz0, iz1 = x0 + 2, x1 - 2, z0 + 2, z1 - 2
     roof = top - 1
@@ -251,16 +279,25 @@ def tower(s, x0, z0, sx, sz, top, ladder_xz, flat_faces=()):
     for z in range(z0, z1 + 1):
         s.set(x0, top, z, RAIL)
         s.set(x1, top, z, RAIL)
+    # crown: one crystal spike per corner (2-block post, all at the same height), a ring of lightning-rod pins
+    # every 2 blocks along the parapet between them, a lamp on the inner corner of each pier
     for (px, pz, ox, oz) in ((x0, z0, 1, 1), (x1, z0, -1, 1), (x0, z1, 1, -1), (x1, z1, -1, -1)):
         sh.box(s, min(px, px + ox), roof, min(pz, pz + oz), max(px, px + ox), top - 1, max(pz, pz + oz), BODY)
         sh.box(s, min(px, px + ox), top, min(pz, pz + oz), max(px, px + ox), top, max(pz, pz + oz), PURPUR)
         crystal_spike(s, px, top + 1, pz, post=2)
-        for (ax, az) in ((px + ox, pz), (px, pz + oz)):
-            s.set(ax, top + 1, az, RAIL)
-            s.set(ax, top + 2, az, st.lightning_rod("up"))
         lamp_post(s, px + ox, top + 1, pz + oz)
+    for x in range(x0 + 2, x1 - 1):
+        if (x - x0) % 2 == 0:
+            s.set(x, top + 1, z0, st.lightning_rod("up"))
+            s.set(x, top + 1, z1, st.lightning_rod("up"))
+    for z in range(z0 + 2, z1 - 1):
+        if (z - z0) % 2 == 0:
+            s.set(x0, top + 1, z, st.lightning_rod("up"))
+            s.set(x1, top + 1, z, st.lightning_rod("up"))
+    # searchlight on a purpur pedestal, beams (end rods) toward the enemy side
     s.set(cx, top, cz, TRIM)
-    frame_light(s, cx, top + 1, cz)
+    s.set(cx, top + 1, cz, PURPUR)
+    frame_light(s, cx, top + 2, cz, beams=beams)
     # ladder through every floor and the roof hatch
     lx, lz = ladder_xz
     lfacing = "east" if lx == ix0 else "west" if lx == ix1 else "south" if lz == iz0 else "north"
@@ -393,7 +430,7 @@ def finish(s, seed, name):
 # --------------------------------------------------------------------------------------- 1. segment
 def build_segment():
     s = Schematic(16, 18, 5, ground=G)
-    wall_run(s, 0, 15, 0, piers={0, 7, 8, 15})
+    wall_run(s, 0, 15, 0, piers={0, 7, 8, 15}, pipes=(9,))
     # sculk infestation creeping up the plinth at the base of the outer face
     sculk_patch(s, [(9, 2, 0), (10, 2, 0), (11, 2, 0), (12, 2, 0), (10, 3, 0), (11, 3, 0), (13, 2, 0)], seed=1)
     # inner-face signage (city side)
@@ -415,7 +452,7 @@ def build_corner():
     wall_run(arm, 0, 7, 0, piers={0, 7})
     s.paste(arm.rotated(3), 2, 0, 8)
     # the tower's east and south faces are hidden behind the arms -> flat (no recess carving into the arm piers)
-    tower(s, 0, 0, T, T, TOP, ladder_xz=(2, 4), flat_faces=("east", "south"))
+    tower(s, 0, 0, T, T, TOP, ladder_xz=(2, 4), flat_faces=("east", "south"), beams=("north", "west"))
     face_details(s, "north", 0, 0, T, T)
     face_details(s, "west", 0, 0, T, T)
     # walkway doors (2 high) from both arms into the top room; lintel lights + side lights above
@@ -461,16 +498,16 @@ def build_corner():
 
 
 # --------------------------------------------------------------------------------------- 3. gate
-# 8 wide x 7 high, rows y17..y11, x=8..15. '#' bone, 'E' eye socket (tinted glass, froglight behind),
-# 'b' dark tooth gap (blackstone, proud), '.' open (recessed wall shows through)
+# 6 wide x 6 high, rows y17..y12, x=9..14 (centred on the arch). '#' polished deepslate (a close dark shade of the
+# body: a low-contrast relief that only reads from up close), 'E' eye socket (magenta glass, froglight behind),
+# 't' tooth (bone, the only pale blocks), '.' open (the recessed wall shows through)
 SKULL = [
-    "..####..",
-    ".######.",
-    "########",
-    "#EE##EE#",
-    "#EE##EE#",
-    ".##..##.",
-    ".#b##b#.",
+    ".####.",
+    "######",
+    "#E##E#",
+    "#E##E#",
+    ".####.",
+    ".#tt#.",
 ]
 
 
@@ -483,7 +520,9 @@ def build_gate():
     # --- archway x=9..14, y=2..8, full depth; road with a magenta centre band
     sh.box(s, 9, 0, 0, 14, 0, 11, BASE)
     sh.box(s, 9, 1, 0, 14, 1, 11, TRIM)
-    sh.box(s, 11, 1, 0, 12, 1, 11, VILLAIN["road_line"])
+    sh.box(s, 10, 1, 0, 13, 1, 11, BASE)                                  # deepslate border of the lit strip
+    sh.box(s, 11, 0, 0, 12, 0, 11, LANT)                                  # sea lanterns under...
+    sh.box(s, 11, 1, 0, 12, 1, 11, GLASS)                                 # ...a purple glass centre strip
     sh.box(s, 9, 2, 0, 14, 8, 11, "air")
     # --- gatehouse over the arch: x=9..14, y=9..18, z=0..11 (north/south walls 2 thick: z=0..1 and z=10..11)
     sh.box(s, 9, 9, 0, 14, 18, 11, BODY)
@@ -526,27 +565,27 @@ def build_gate():
     s.set(11, 13, 8, LANT)
     s.set(11, 17, 5, FROG)
     s.set(12, 17, 8, FROG)
-    # --- skull over the arch (north face): recess the face 1 block (x=8..15, y=11..17), chiseled frame,
-    #     neon underline at y=10, bone skull standing proud at z=0 with dark hollow eyes glowing from behind
-    sh.box(s, 8, 11, 0, 15, 17, 0, "air")
+    # --- skull over the arch (north face): recess the face 1 block (x=9..14, y=11..17) between chiseled jambs,
+    #     neon underline at y=10 as the jaw, dark deepslate skull flush with the face, glowing eye sockets
+    sh.box(s, 9, 11, 0, 14, 17, 0, "air")
     for y in range(10, 19):
-        s.set(7, y, 0, CHISEL)
-        s.set(16, y, 0, CHISEL)
-    for x in range(8, 16):
+        s.set(8, y, 0, CHISEL)
+        s.set(15, y, 0, CHISEL)
+    for x in range(9, 15):
         s.set(x, 18, 0, CHISEL)
         s.set(x, 10, 0, GLASS)
         s.set(x, 10, 1, LANT)
     for r, row in enumerate(SKULL):
         y = 17 - r
         for i, ch in enumerate(row):
-            x = 8 + i
+            x = 9 + i
             if ch == "#":
-                s.set(x, y, 0, BONE)
+                s.set(x, y, 0, BASE)
             elif ch == "E":
-                s.set(x, y, 0, TINT)
+                s.set(x, y, 0, GLASS2)
                 s.set(x, y, 1, FROG)
-            elif ch == "b":
-                s.set(x, y, 0, BODY_SMOOTH)
+            elif ch == "t":
+                s.set(x, y, 0, st.log("minecraft:bone_block", "y"))
     # south face of the gatehouse: neon lines + window strip
     for x in range(9, 15):
         s.set(x, Y_NEON, 11, GLASS)
@@ -673,7 +712,8 @@ def build_watchtower():
     vent(s, 2, 10, 4, "west"); vent(s, 2, 10, 5, "west")
     vent(s, 7, 10, 4, "east"); vent(s, 7, 10, 5, "east")
     s.add_sign(4, 8, 7, SIGN + "[facing=south]", ["VIGIE 3", "ZONE", "INTERDITE", ""])
-    # cabin: floor y16 (x,z=1..8) with bevelled underside, glass walls y17..19, roof y20
+    # cabin: floor y16 (x,z=1..8) with bevelled underside, clear light-blue glass walls y17..18 with a purple
+    # glass trim band at y19, blackstone corner posts with purpur caps, roof y20 (lit from the ceiling lanterns)
     sh.box(s, 1, 16, 1, 8, 16, 8, BASE)
     for a in range(2, 8):
         s.set(a, 16, 1, st.stairs(STAIR_T, "south", "top"))
@@ -682,10 +722,9 @@ def build_watchtower():
         s.set(8, 16, a, st.stairs(STAIR_T, "west", "top"))
     for (x, z) in ((2, 2), (7, 2), (2, 7), (7, 7)):
         s.set(x, 16, z, FROG)
-    sh.box(s, 1, 17, 1, 8, 19, 8, GLASS)
+    sh.box(s, 1, 17, 1, 8, 18, 8, CAB_GLASS)
+    sh.box(s, 1, 19, 1, 8, 19, 8, GLASS)
     sh.box(s, 2, 17, 2, 7, 19, 7, "air")
-    sh.box(s, 1, 17, 1, 8, 17, 8, BODY)                                    # knee wall
-    sh.box(s, 2, 17, 2, 7, 17, 7, "air")
     for (x, z) in ((1, 1), (8, 1), (1, 8), (8, 8)):
         sh.box(s, x, 17, z, x, 19, z, BODY)
         s.set(x, 20, z, PURPUR)
@@ -734,8 +773,8 @@ def build_watchtower():
 
 def build():
     return {
-        "city_wall_segment": build_segment(),
-        "city_wall_corner": build_corner(),
-        "city_gate": build_gate(),
+        "city_wall_segment": Tile(build_segment(), 0, 0),      # anchor: west seam pier, outer face row
+        "city_wall_corner": Tile(build_corner(), 2, 2),        # anchor: crossing of the two outer face lines
+        "city_gate": Tile(build_gate(), 0, 2),                 # anchor: west seam pier, outer face row
         "city_watchtower": build_watchtower(),
     }

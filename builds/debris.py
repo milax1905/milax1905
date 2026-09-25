@@ -1,5 +1,6 @@
 """Debris sites: a spilled cargo drop (shipping containers under a parachute) and a field of fallen orbital debris
-(satellite, heat shield, cracked fuel tank, hull panels). Both sit on a thin snow slab (ground=2)."""
+(satellite bus with dish and solar wings, cracked fuel sphere, tilted heat shield, hull panels along one trail).
+Both sit on a thin snow slab (ground=2)."""
 import math
 import random
 
@@ -12,6 +13,7 @@ FRAME_STAIR = "deepslate_tile"
 FLOOR = "minecraft:spruce_planks"
 LGP = "minecraft:light_gray_concrete_powder"
 LGC = "minecraft:light_gray_concrete"
+IRON = "minecraft:iron_block"
 SNOW = GROUND["snow"]
 COL = {
     "cyan": ("minecraft:cyan_concrete", "minecraft:cyan_concrete_powder"),
@@ -32,6 +34,15 @@ def _barrel(facing="up"):
 def _vec(axis):
     """(+a vector, +c vector) in (dx, dz) for a container along `axis`."""
     return ((1, 0), (0, 1)) if axis == "x" else ((0, 1), (1, 0))
+
+
+def _on(s, x, z, block, dy=0):
+    """Put a block on top of the terrain at (x, z) (snow layers are removed first). Returns the y used."""
+    y = s.top_y(x, z) + 1
+    if "snow[" in s.get(x, y - 1, z):
+        s.set(x, y - 1, z, "air"); y -= 1
+    s.set(x, y + dy, z, block)
+    return y + dy
 
 
 def container(s, x0, y0, z0, length, width, height, axis, color, door_end=1, doors="closed", tipped=False):
@@ -82,9 +93,10 @@ def container(s, x0, y0, z0, length, width, height, axis, color, door_end=1, doo
     return P
 
 
-def roof_detail(s, P, length, width, height, seed=0, hatch=True, rib=True, rust=1, snow_prob=0.45):
-    """Roof furniture: a polished-deepslate rib across the middle, iron-trapdoor hatches, rust patches and
-    wind-blown snow (taller layers on the windward = west half)."""
+def roof_detail(s, P, length, width, height, seed=0, hatch=True, rib=True, rust=1, snow_prob=0.3):
+    """Roof furniture: a polished-deepslate rib across the middle, iron-trapdoor hatches, rust patches and a few
+    deliberate 2-3 layer snow patches on the leeward (east) half only - the windward half is wind-scoured so the
+    roof colour and the rib stay readable."""
     rng = random.Random(seed)
     top = height - 1
     if rib:
@@ -108,11 +120,10 @@ def roof_detail(s, P, length, width, height, seed=0, hatch=True, rib=True, rust=
     for a in range(length):
         for c in range(width):
             x, y, z = P(a, c, top)
-            if not s.is_air(x, y + 1, z) or "trapdoor" in s.get(x, y, z):
+            if x <= x_mid or not s.is_air(x, y + 1, z) or "trapdoor" in s.get(x, y, z):
                 continue
             if rng.random() < snow_prob:
-                n = rng.randint(3, 6) if x < x_mid else rng.randint(1, 2)
-                s.set(x, y + 1, z, st.snow_layer(n))
+                s.set(x, y + 1, z, st.snow_layer(rng.randint(2, 3)))
 
 
 def _drift(s, x, y, z, dx, dz, length, seed=0):
@@ -157,16 +168,18 @@ def _chain_line(s, p1, p2):
 
 
 def _canopy(s, cx, cz, rx, ry, rz, y_surface, gores=6, seed=1):
-    """Deflated parachute canopy: a half-buried wool mound (ellipsoid) with 6 wide gores (cyan / light gray),
-    a carpet fringe of the gore colour and a couple of light-gray-concrete seam lines. Returns rim points."""
+    """Deflated parachute canopy: a LOW white / light-gray wool mound (max 2 blocks of wool + a carpet), gores
+    alternating, the outer two rings carpet only (soft edge), one cyan seam as the only accent, and a carpet
+    fringe just outside the rim. Returns the apex (x, y, z)."""
     rng = random.Random(seed)
     Y = y_surface + 1
+    soft = 1.0 - 2.0 / min(rx, rz)                              # outer two rings -> carpet only
 
     def gore(dx, dz):
         return int((math.atan2(dz, dx) + math.pi) / (2 * math.pi / gores)) % gores
 
     def fabric(g):
-        return "cyan" if g % 2 == 0 else "light_gray"
+        return "white" if g % 2 == 0 else "light_gray"
 
     for x in range(s.w):
         for z in range(s.l):
@@ -174,32 +187,31 @@ def _canopy(s, cx, cz, rx, ry, rz, y_surface, gores=6, seed=1):
             r2 = (dx / rx) ** 2 + (dz / rz) ** 2
             if r2 > 1.0:
                 continue
-            h = ry * math.sqrt(max(0.0, 1.0 - r2)) * (0.9 + 0.2 * sh.value_noise2(x, z, seed, 4.0))
             fab = fabric(gore(dx, dz))
-            n = int(round(h))
+            h = ry * math.sqrt(max(0.0, 1.0 - r2)) * (0.9 + 0.2 * sh.value_noise2(x, z, seed, 4.0))
+            n = 0 if r2 > soft * soft else min(2, int(h))
             for k in range(n):
                 s.set(x, Y + k, z, f"minecraft:{fab}_wool")
-            if n == 0:
-                s.set(x, Y, z, f"minecraft:{fab}_carpet")
-            elif h - n > 0.45:
+            if n == 0 or (n < 2 and h - n > 0.45):
                 s.set(x, Y + n, z, f"minecraft:{fab}_carpet")
     # fringe ring (carpet of the gore colour) just outside the rim
     for x in range(s.w):
         for z in range(s.l):
             dx, dz = x - cx, z - cz
             r2 = (dx / (rx + 1.2)) ** 2 + (dz / (rz + 1.2)) ** 2
-            if r2 <= 1.0 and s.is_air(x, Y, z) and rng.random() < 0.75:
+            if r2 <= 1.0 and s.is_air(x, Y, z) and rng.random() < 0.7:
                 s.set(x, Y, z, f"minecraft:{fabric(gore(dx, dz))}_carpet")
-    # seam / crease lines: light-gray-concrete lines along two gore boundaries on the mound top
-    for g in (1, 4):
-        a = -math.pi + g * 2 * math.pi / gores
-        for t in range(1, int(max(rx, rz))):
-            x, z = round(cx + t * rx / max(rx, rz) * math.cos(a)), round(cz + t * rz / max(rx, rz) * math.sin(a))
-            ty = s.top_y(x, z)
-            if ty >= Y and "wool" in s.get(x, ty, z):
-                s.set(x, ty, z, LGC)
-            elif ty >= Y and "carpet" in s.get(x, ty, z) and "wool" in s.get(x, ty - 1, z):
-                s.set(x, ty, z, "air"); s.set(x, ty - 1, z, LGC)
+    # one cyan seam stripe along a gore boundary (the only accent)
+    a = -math.pi + 2 * 2 * math.pi / gores
+    for t in range(0, int(max(rx, rz)) + 1):
+        x, z = round(cx + t * rx / max(rx, rz) * math.cos(a)), round(cz + t * rz / max(rx, rz) * math.sin(a))
+        ty = s.top_y(x, z)
+        b = s.get(x, ty, z)
+        if ty >= Y and "wool" in b:
+            s.set(x, ty, z, "minecraft:cyan_wool")
+        elif ty >= Y and "carpet" in b:
+            s.set(x, ty, z, "minecraft:cyan_carpet")
+    return (round(cx), s.top_y(round(cx), round(cz)), round(cz))
 
 
 def build_cargo():
@@ -235,24 +247,31 @@ def build_cargo():
         s.set(9, Y, z, SNOW); s.set(9, Y + 1, z, st.snow_layer(rng.randint(2, 5)))
         s.set(8, Y, z, st.snow_layer(rng.randint(3, 7)))
 
-    # ---- parachute: snagged on the top corner of the stack, draped down the east face, mound to the south-east
+    # ---- parachute: snagged on the top corner of the stack, a narrow drape down the east face, then the
+    #      deflated canopy lying 1-2 blocks of snow further south-east, held by taut chain risers
     top_y = G + 7
     for z in (14, 15):                                                     # fabric over the roof corner
-        s.set(18, top_y + 1, z, "minecraft:cyan_carpet")
+        s.set(18, top_y + 1, z, "minecraft:white_carpet")
     knot = (19, top_y + 1, 15)
     s.set(*knot, "minecraft:light_gray_wool")                              # riser knot
-    curtain = [(19, top_y - 2, top_y), (20, top_y - 4, top_y - 2), (21, top_y - 5, top_y - 4), (22, top_y - 6, top_y - 5)]
+    curtain = [(19, top_y - 2, top_y), (20, top_y - 5, top_y - 2), (21, Y, Y + 1)]
     for x, y1, y2 in curtain:
         for z in range(12, 17):
-            fab = "cyan" if z in (12, 13) else "light_gray"
+            fab = "light_gray" if z == 14 else "white"
             for y in range(y1, y2 + 1):
                 s.set(x, y, z, f"minecraft:{fab}_wool")
-    s.set(22, top_y - 6, 17, "minecraft:light_gray_carpet"); s.set(22, top_y - 6, 11, "minecraft:cyan_carpet")
-    _canopy(s, 25, 19, 6, 3.2, 5.5, G, gores=6, seed=4)
-    # shroud lines: from the knot on the stack down to the far rim of the canopy (deepslate attachment loops)
-    for (rx_, rz_) in ((30, 20), (28, 24), (23, 25)):
-        s.set(rx_, Y, rz_, st.slab("polished_deepslate"))
-        _chain_line(s, (knot[0], knot[1] - 1, knot[2]), (rx_, Y + 1, rz_))
+    s.set(21, Y + 2, 14, "minecraft:light_gray_carpet"); s.set(21, Y + 2, 12, "minecraft:white_carpet")
+    for z in (12, 13, 15):
+        s.set(22, Y, z, "minecraft:white_carpet")
+    s.set(22, Y, 14, "minecraft:light_gray_carpet")
+    apex = _canopy(s, 26.5, 21, 5.0, 2.6, 5.0, G, gores=6, seed=4)
+    # risers: the shroud lines gather in a second knot at the foot of the drape and run almost flat to the
+    # canopy edge (straight chain runs along x, one step at most) - taut, still attached
+    knot2 = (21, Y + 2, 15)
+    s.set(*knot2, "minecraft:light_gray_wool")
+    for (rx_, rz_) in ((25, 16), (30, 17), (29, 18), (32, 15)):
+        ty = s.top_y(rx_, rz_)
+        _chain_line(s, (knot2[0] + 1, knot2[1], knot2[2]), (rx_, ty + 1, rz_))
     # drop-zone marker poles with cyan banners + one ground beacon
     for (x, z) in ((6, 7), (21, 27)):
         for y in range(Y, Y + 3):
@@ -276,33 +295,40 @@ def build_cargo():
     for (x, z) in ((3, 22), (4, 22), (2, 23), (4, 23), (3, 24), (2, 24), (4, 25), (5, 22)):
         s.set(x, G, z, "minecraft:white_concrete_powder")
     s.set(5, Y, 23, st.stairs("spruce", "west"))                        # a seat by the fire
-    s.set(2, Y, 25, _barrel("east"))
+    s.set(4, Y, 25, _barrel("east"))
 
-    # ---- purple container (north-east), burst open on its west side toward the stack, cargo spilled in a heap
+    # ---- purple container (north-east), BURST open on its west side toward the stack, cargo spilled in a mound
     P4 = container(s, 22, Y, 4, 8, 4, 4, "z", "purple", door_end=1, doors="closed")
-    for a in range(2, 6):
+    for a in range(1, 5):                                                   # 4 wide x 2 high hole in the west wall
         for y in (1, 2):
             s.set(*P4(a, 0, y), "air")
-    s.set(*P4(2, 0, 2), st.trapdoor("iron", "east", "top", open=True))        # bent sheets still hanging from the roof
-    s.set(*P4(5, 0, 2), st.trapdoor("iron", "east", "top", open=True))
-    s.set(*P4(3, 0, 3), st.stairs(FRAME_STAIR, "east", "top"))                 # buckled roof edge
-    s.set(*P4(4, 0, 3), st.stairs(FRAME_STAIR, "east", "top"))
+    s.set(*P4(2, 0, 2), st.trapdoor("iron", "east", "top", open=True))        # one bent sheet still hanging
+    s.set(*P4(2, 0, 3), st.slab("polished_deepslate", "top"))                   # roof edge sagging into the hole
+    s.set(*P4(3, 0, 3), st.slab("polished_deepslate", "top"))
+    s.set(*P4(1, -1, 3), st.stairs(FRAME_STAIR, "west", "top"))                # peeled sheet metal, bent outward
+    s.set(*P4(4, -1, 3), st.stairs(FRAME_STAIR, "west", "top"))
+    s.set(*P4(0, -1, 1), st.stairs(FRAME_STAIR, "west", "bottom"))
     s.set(*P4(1, 1, 1), st.lantern(hanging=False))
     s.set(*P4(6, 1, 1), BARREL_UP); s.set(*P4(6, 2, 1), SHIP["container"])
-    s.set(*P4(3, 1, 1), _barrel("west")); s.set(*P4(4, 1, 1), BARREL_UP)
+    s.set(*P4(3, 1, 1), _barrel("west")); s.set(*P4(4, 1, 1), BARREL_UP); s.set(*P4(5, 2, 1), BARREL_UP)
     s.add_sign(*P4(7, 4, 2), "minecraft:warped_wall_sign[facing=south]", ["CX-04", "FRAGILE", "labo Nord", ""])
-    roof_detail(s, P4, 8, 4, 4, seed=3, rust=2)
-    # the heap: 2 high against the torn wall (x=21), pallet boards around it, two barrels rolled away
-    heap = [(21, 6, _barrel("west")), (21, 7, BARREL_UP), (21, 8, BARREL_UP), (21, 9, _barrel("north")),
-            (20, 7, BARREL_UP), (20, 8, "minecraft:white_shulker_box"), (20, 6, st.slab("spruce")),
-            (20, 9, st.trapdoor("spruce", "north", "bottom", open=False)), (19, 7, _barrel("east")),
-            (19, 8, st.slab("spruce")), (19, 6, "minecraft:purple_concrete_powder"), (18, 7, _barrel("east")),
-            (18, 9, st.trapdoor("iron", "north", "bottom", open=False)), (19, 10, st.slab("dark_oak"))]
-    for x, z, b in heap:
-        s.set(x, Y, z, b)
-    s.set(21, Y + 1, 7, BARREL_UP); s.set(21, Y + 1, 8, SHIP["container"]); s.set(20, Y + 1, 7, "minecraft:light_gray_shulker_box")
-    s.set(21, Y + 2, 7, st.snow_layer(2)); s.set(21, Y + 1, 9, st.snow_layer(1)); s.set(20, Y + 1, 8, st.snow_layer(2))
-    s.set(19, Y + 1, 7, st.snow_layer(1))
+    roof_detail(s, P4, 8, 4, 4, seed=3, rust=1)
+    # the mound: 3 high against the hole (x=21), spreading west, pallet boards around it
+    mound = {(21, Y, 5): BARREL_UP, (21, Y, 6): BARREL_UP, (21, Y, 7): _barrel("west"), (21, Y, 8): BARREL_UP,
+             (21, Y, 9): st.slab("spruce"), (20, Y, 5): _barrel("north"), (20, Y, 6): BARREL_UP, (20, Y, 7): BARREL_UP,
+             (20, Y, 8): SHIP["container"], (19, Y, 6): _barrel("east"), (19, Y, 7): st.slab("spruce"),
+             (19, Y, 8): "minecraft:purple_concrete_powder", (20, Y, 9): st.trapdoor("spruce", "north", "bottom", open=False),
+             (21, Y + 1, 6): BARREL_UP, (21, Y + 1, 7): SHIP["container"], (21, Y + 1, 8): st.slab("spruce"),
+             (20, Y + 1, 6): "minecraft:light_gray_shulker_box", (20, Y + 1, 7): _barrel("west"),
+             (21, Y + 2, 6): BARREL_UP, (21, Y + 2, 7): st.snow_layer(2), (20, Y + 2, 6): st.snow_layer(2),
+             (19, Y + 1, 6): st.snow_layer(1), (21, Y + 1, 5): st.snow_layer(2), (18, Y, 7): st.slab("spruce")}
+    for (x, y, z), b in mound.items():
+        s.set(x, y, z, b)
+    s.set(17, Y, 9, _barrel("east")); s.set(15, Y, 10, _barrel("west"))           # two barrels rolled away
+    s.set(18, Y, 4, st.slab("spruce"))                                            # a broken crate: 3 sides left
+    s.set(18, Y, 3, st.trapdoor("spruce", "north", "bottom", open=True))
+    s.set(17, Y, 4, st.trapdoor("spruce", "west", "bottom", open=True))
+    s.set(19, Y, 4, st.trapdoor("spruce", "east", "bottom", open=True))
 
     # ---- crushed white big container (south of the stack), roof stamped down one block at the east end
     P6 = container(s, 9, Y, 19, 8, 4, 4, "x", "white", door_end=-1, doors="closed")
@@ -323,13 +349,17 @@ def build_cargo():
     s.set(*P6(2, 1, 1), st.lantern(hanging=True)); s.set(*P6(1, 1, 1), BARREL_UP); s.set(*P6(1, 2, 1), SHIP["container"])
     s.set(*P6(1, 3, 3), FRAME); s.set(*P6(2, 0, 3), LGP)                   # rib stub + rust on the intact roof
     s.set(*P6(1, 1, 4), st.trapdoor("iron", "north", "bottom", open=False))
+    sh.snow_cover(s, 9, 19, 16, 22, y_min=Y + 2, prob=0.95, seed=7, layers=(2, 4))     # the only fully snowed roof
     # ---- tipped light_gray small container (north), plowed into the snow, door hanging up
     P5 = container(s, 11, G, 5, 5, 3, 3, "x", "light_gray", door_end=-1, doors="none", tipped=True)
     s.set(*P5(-1, 1, 2), st.trapdoor("iron", "east", "top", open=False))
     s.set(*P5(-1, 1, 1), "air")
     s.set(*P5(2, 1, 2), st.trapdoor("iron", "north", "bottom", open=False))
-    for (dx, dz) in ((-2, 0), (-2, 1), (-2, 2), (-3, 1), (-1, -1), (-1, 3), (5, 0), (5, 1)):   # snow plowed up around it
-        s.set(11 + dx, Y, 5 + dz, SNOW)
+    for (dx, dz) in ((-2, 0), (-2, 1), (-2, 2), (-3, 1), (-1, -1), (-1, 3), (5, 0), (5, 1)):   # snow plowed up: piles
+        s.set(11 + dx, Y, 5 + dz, st.snow_layer(rng.randint(5, 7)))
+    for (dx, dz) in ((-3, 0), (-3, 2), (-4, 1), (-2, -1), (-2, 3), (6, 0), (6, 1), (-1, 4), (0, 3), (1, 3)):
+        if s.is_air(11 + dx, Y, 5 + dz):
+            s.set(11 + dx, Y, 5 + dz, st.snow_layer(rng.randint(2, 3)))
     # ---- small cyan + small white stacked and skewed 90 degrees (south)
     P7 = container(s, 8, Y, 26, 5, 3, 3, "x", "cyan", doors="closed")
     P8 = container(s, 9, Y + 3, 25, 5, 3, 3, "z", "white", doors="closed")
@@ -338,7 +368,7 @@ def build_cargo():
     s.set(*P7(1, 0, 2), LGP)
 
     # ---- debris and weathering
-    pallets = [(17, 9, st.slab("spruce")), (7, 20, st.trapdoor("iron", "north", "bottom", open=False)),
+    pallets = [(19, 11, st.slab("spruce")), (7, 20, st.trapdoor("iron", "north", "bottom", open=False)),
                (17, 21, st.slab("spruce")), (13, 24, st.slab("polished_deepslate")), (25, 12, st.slab("spruce"))]
     for x, z, b in pallets:
         if s.is_air(x, Y, z):
@@ -348,15 +378,20 @@ def build_cargo():
     _drift(s, 6, Y, 17, 1, 0, 2, seed=6)
     sh.snow_cover(s, y_min=Y, prob=0.22, seed=5, layers=(1, 2),
                   skip=["wool", "carpet", "glass", "iron", "purple", "lantern", "barrel", "shulker", "planks", "table",
-                        "bed", "log", "white_concrete", "sea_lantern", "powder", "concrete"])
-    sh.snow_cover(s, y_min=G, prob=0.12, seed=15, layers=(1, 2), skip=["wool", "carpet", "glass", "iron", "purple",
+                        "bed", "log", "white_concrete", "sea_lantern", "powder", "concrete", "polished_deepslate"])
+    # a 2-block snow margin all round so nothing sits on the schematic border
+    out = Schematic(W + 4, H, L + 4, ground=G)
+    sh.ground_slab(out, G, SNOW, depth=3)
+    out.paste(s, 2, 0, 2, skip_air=False)
+    sh.snow_cover(out, y_min=G, prob=0.12, seed=15, layers=(1, 2), skip=["wool", "carpet", "glass", "iron", "purple",
                   "lantern", "barrel", "shulker", "planks", "table", "bed", "log", "sea_lantern", "concrete", "packed_ice"])
-    return s.cropped(pad=1)
+    return out.cropped(pad=1)
 
 
 # ------------------------------------------------------------------------------------------ orbital debris
 def _panel(s, x, y, z, dir, mat="smooth_quartz", core="minecraft:white_concrete"):
-    """A small hull panel resting at an angle: slab -> stairs -> raised block -> top stair. dir = long axis."""
+    """A small hull panel resting at an angle: slab -> stairs -> raised block -> top stair, on a dark anchor
+    (polished deepslate under the lifted end, a basalt scorch mark beside it)."""
     dx, dz = _DV[dir]
     back = _OPP[dir]
     s.set(x, y, z, st.slab(mat))
@@ -365,65 +400,92 @@ def _panel(s, x, y, z, dir, mat="smooth_quartz", core="minecraft:white_concrete"
     s.set(x + 2 * dx, y + 1, z + 2 * dz, st.stairs(mat, back, "top"))
     s.set(x + 3 * dx, y + 1, z + 3 * dz, st.slab(mat))
     s.set(x + 3 * dx, y, z + 3 * dz, FRAME)
+    s.set(x + dx - dz, y - 1, z + dz + dx, "minecraft:basalt")
+    s.set(x + 2 * dx + dz, y, z + 2 * dz - dx, st.slab("polished_deepslate"))
 
 
 def _sheet(s, x0, y, z0, dir, seed=0):
-    """A big torn hull sheet, 5 long x 4 wide: a plate of quartz slabs lying on the snow that lifts gently at
-    one end (bottom slab -> top slab -> one block up), propped on polished-deepslate chunks, with one dark
-    polished-deepslate rib edge and a torn-off corner. Reads as a pale panel, not a staircase."""
+    """A big torn hull sheet, 5 long x 4 wide: a pale quartz plate lying on the snow (full blocks at the buried
+    end, half-covered by snow layers) that lifts gently at the other end (top slab -> one block up), propped on
+    polished-deepslate chunks, with one dark polished-deepslate rib edge and a torn-off corner."""
+    rng = random.Random(seed)
     dx, dz = _DV[dir]
     wx, wz = (-dz, dx)                                        # width direction
-    prof = [(0, "bottom"), (0, "bottom"), (0, "top"), (1, "bottom"), (1, "bottom")]
+    prof = [(0, "full"), (0, "full"), (0, "top"), (1, "bottom"), (1, "bottom")]
     for w in range(4):
         dark = (w == 3)
         mat = "polished_deepslate" if dark else ("quartz" if w % 2 == 0 else "smooth_quartz")
         for i, (dy, typ) in enumerate(prof):
             if i == 0 and w == 0:
                 continue                                      # torn corner
-            s.set(x0 + dx * i + wx * w, y + dy, z0 + dz * i + wz * w, st.slab(mat, typ))
+            x, z = x0 + dx * i + wx * w, z0 + dz * i + wz * w
+            if typ == "full":
+                s.set(x, y + dy, z, FRAME if dark else ("minecraft:quartz_block" if w % 2 == 0 else "minecraft:smooth_quartz"))
+                if rng.random() < 0.7:
+                    s.set(x, y + dy + 1, z, st.snow_layer(rng.randint(1, 2)))     # half buried
+            else:
+                s.set(x, y + dy, z, st.slab(mat, typ))
     for w in (0, 3):                                          # props under the lifted end
         s.set(x0 + dx * 4 + wx * w, y, z0 + dz * 4 + wz * w, FRAME)
     s.set(x0 + dx * 3 + wx * 1, y, z0 + dz * 3 + wz * 1, "minecraft:cobbled_deepslate")
+    s.set(x0 + dx * 3 + wx * 2, y, z0 + dz * 3 + wz * 2, st.slab("polished_deepslate"))
     s.set(x0 + dx * 1 + wx * 1, y + 1, z0 + dz * 1 + wz * 1, st.trapdoor("iron", _OPP[dir], "bottom", open=False))
     s.set(x0 + wx * 0, y, z0 + wz * 0, st.trapdoor("iron", dir, "bottom", open=True))       # torn flap
+    for w in range(-1, 5):                                    # scorch under the buried edge
+        s.set(x0 - dx + wx * w, y - 1, z0 - dz + wz * w, "minecraft:basalt" if w % 2 else "minecraft:tuff")
 
 
 def _chunk(s, x, z, kind, seed=0):
-    """2-4 block mini-cluster of wreckage on the snow (never a lone cube)."""
-    y = s.top_y(x, z) + 1
-    if "snow[" in s.get(x, y - 1, z):
-        s.set(x, y - 1, z, "air"); y -= 1
+    """2-4 block mini-cluster of wreckage on the snow, always with a dark anchor (deepslate / basalt scorch)."""
+    y = _on(s, x, z, "air")
+    s.set(x, y - 1, z, "minecraft:basalt")                    # scorch mark on the snow under every chunk
     if kind == 0:
         s.set(x, y, z, st.slab("polished_deepslate")); s.set(x + 1, y, z, st.trapdoor("iron", "north", "bottom", open=False))
         s.set(x, y, z + 1, "minecraft:cobbled_deepslate")
     elif kind == 1:
         s.set(x, y, z, st.stairs("quartz", "east")); s.set(x + 1, y, z, "minecraft:white_concrete")
         s.set(x + 1, y, z + 1, st.slab("polished_deepslate")); s.set(x + 1, y + 1, z, st.slab("quartz"))
+        s.set(x + 1, y - 1, z, "minecraft:blackstone")
     elif kind == 2:
-        s.set(x, y, z, SHIP["frame"]); s.set(x - 1, y, z, st.slab("smooth_quartz"))
+        s.set(x, y, z, IRON); s.set(x - 1, y, z, st.slab("smooth_quartz"))
         s.set(x, y, z - 1, st.trapdoor("iron", "north", "bottom", open=False)); s.set(x, y + 1, z, st.snow_layer(2))
+        s.set(x - 1, y - 1, z, "minecraft:tuff")
     else:
         s.set(x, y, z, "minecraft:cobbled_deepslate"); s.set(x + 1, y, z, st.stairs("polished_blackstone_brick", "west"))
         s.set(x, y, z - 1, st.slab("smooth_quartz")); s.set(x, y + 1, z, st.trapdoor("iron", "east", "bottom", open=True))
 
 
-def _wing(s, x0, y, z0, length, dir, sag=True):
-    """Solar panel wing: iron-bar rails, blue / light-blue glass cells, iron ribs. Along x (dir east/west)."""
-    step = 1 if dir == "east" else -1
+def _wing(s, x0, y0, z0, length, dir, bends=None, ribs=()):
+    """Solar panel wing, 5 wide: a stripped-spruce spar down the middle, blue / light-blue glass cells either
+    side, iron-bar rails on both edges, iron ribs across. `bends` = {index: +1 / -1} folds the wing up / down by
+    one block at that index (the fold column is 2 blocks thick so the plate stays face-connected)."""
+    bends = bends or {}
+    dx, dz = _DV[dir]
+    wx, wz = (-dz, dx)
+    spar = st.log("minecraft:stripped_spruce_log", "x" if dx else "z")
+    y = y0
     for i in range(length):
-        x = x0 + step * i
-        yy = y - 1 if (sag and i >= length - 3) else y
-        for dz in range(-2, 3):
-            z = z0 + dz
-            if abs(dz) == 2:
-                s.set(x, yy, z, "minecraft:iron_bars" if i % 4 != 3 else "minecraft:iron_block")
-            elif i % 4 == 3:
-                s.set(x, yy, z, "minecraft:iron_block")
+        x, z = x0 + dx * i, z0 + dz * i
+        b = bends.get(i, 0)
+        y += b
+        rib = i in ribs or i == 0 or b != 0
+        for w in range(-2, 3):
+            px, pz = x + wx * w, z + wz * w
+            if rib:
+                blk = IRON
+            elif abs(w) == 2:
+                blk = "minecraft:iron_bars"
+            elif w == 0:
+                blk = spar
             else:
-                s.set(x, yy, z, "minecraft:blue_stained_glass" if (i % 4) != 1 else "minecraft:light_blue_stained_glass")
+                blk = "minecraft:blue_stained_glass" if (i % 3) else "minecraft:light_blue_stained_glass"
+            s.set(px, y, pz, blk)
+            if b:
+                s.set(px, y - b, pz, blk)
             for k in (1, 2):                                   # nothing piled on the wing
-                if s.get(x, yy + k, z) == SNOW:
-                    s.set(x, yy + k, z, "air")
+                if s.get(px, y + k, pz) == SNOW or "snow[" in s.get(px, y + k, pz):
+                    s.set(px, y + k, pz, "air")
+    return y
 
 
 def _scorch_crater(s, cx, cz, r, G, depth, seed, lee=(1, 0)):
@@ -445,9 +507,9 @@ def _scorch_crater(s, cx, cz, r, G, depth, seed, lee=(1, 0)):
                 s.set(x, G - dep, z, fl)
             elif d <= 1.18:
                 s.set(x, G, z, LGP if n > 0.3 else "minecraft:tuff")
-            elif d <= 1.5:
+            elif d <= 1.4:
                 rh = 2 if leeward else 1
-                h = min(rh, int(round(rh * (1.5 - d) / 0.32 * (0.6 + 0.6 * n))))
+                h = min(rh, int(round(rh * (1.4 - d) / 0.3 * (0.5 + 0.6 * n))))
                 for y in range(G + 1, G + 1 + h):
                     s.set(x, y, z, SNOW)
                 if s.is_air(x, G + 1 + h, z) and rng.random() < 0.7:
@@ -456,161 +518,198 @@ def _scorch_crater(s, cx, cz, r, G, depth, seed, lee=(1, 0)):
                 s.set(x, G, z, rng.choice(["minecraft:tuff", "minecraft:basalt", "minecraft:polished_basalt[axis=y]", "minecraft:tuff"]))
 
 
+def _heat_shield(s, hx, hz, r, y_base, Y):
+    """Ablative heat-shield disc propped at ~27 degrees: the west edge lies in the crater, the plate (one block
+    thick, stairs at each step so the top reads as a ramp) rises one block every two columns to the east and
+    stands ~5 above the snow on polished-deepslate props. Gradient: black centre -> basalt -> pale ablated
+    tuff / light gray ring, with a 1-wide dark polished-blackstone rim; the north-east quarter of the rim is gone."""
+    rng = random.Random(7)
+    x_lo = int(math.floor(hx - r))
+    for x in range(int(hx - r) - 1, int(hx + r) + 2):
+        for z in range(int(hz - r) - 1, int(hz + r) + 2):
+            dd = math.hypot(x - hx, z - hz)
+            if dd > r:
+                continue
+            rim = dd > r - 1.0
+            if rim and (x - hx) > 0.25 * r and (hz - z) > 0.25 * r:
+                continue                                      # broken north-east quarter of the rim
+            if dd <= 1.8:
+                mat, smat = rng.choice(["minecraft:coal_block", SHIP["scorch"], SHIP["scorch"]]), "blackstone"
+            elif dd <= 3.2:
+                mat, smat = rng.choice(["minecraft:basalt", "minecraft:polished_basalt[axis=y]", "minecraft:blackstone"]), "blackstone"
+            elif not rim:
+                mat, smat = rng.choice(["minecraft:tuff", LGC, "minecraft:tuff", "minecraft:polished_basalt[axis=y]"]), "polished_andesite"
+            else:
+                mat, smat = "minecraft:polished_blackstone", "polished_blackstone"
+            k = x - x_lo
+            h = y_base + k // 2
+            if k % 2 == 0 and k > 0:                          # step column: a stair so the top reads as a ramp
+                s.set(x, h, z, st.stairs(smat, "east", "bottom"))
+            else:
+                s.set(x, h, z, mat)
+    top_x = int(hx + r)
+    h_top = y_base + (top_x - x_lo) // 2
+    for z in (int(hz) - 2, int(hz) + 2):                      # props under the raised edge
+        for y in range(Y, h_top - 1):
+            s.set(top_x - 1, y, z, FRAME)
+    s.set(top_x - 3, Y, int(hz), "minecraft:cobbled_deepslate"); s.set(top_x - 3, Y + 1, int(hz), "minecraft:cobbled_deepslate")
+    s.set(top_x - 1, Y, int(hz), st.campfire(soul=True))       # the hottest piece, still smoking under the plate
+    # rim pieces knocked off, lying 3-4 blocks past the broken quarter
+    for (px, pz, f) in ((int(hx + r) + 1, int(hz - r) + 2, "south"), (int(hx + r) - 1, int(hz - r) - 2, "west"),
+                        (int(hx + r) + 2, int(hz - r), "east")):
+        if s.inside(px, Y, pz):
+            _on(s, px, pz, st.stairs("polished_blackstone", f))
+
+
 def build_orbital():
-    W, H, L, G = 38, 14, 38, 2
+    W, H, L, G = 46, 17, 44, 2
     s = Schematic(W, H, L, ground=G)
     sh.ground_slab(s, G, SNOW, depth=3)
     Y = G + 1
     scorch = SHIP["scorch"]
+    rng = random.Random(21)
 
-    # ---- craters (satellite, tank, heat shield, one small with a torn panel smoking in it)
-    _scorch_crater(s, 17, 19, 5.5, G, 2, seed=11)
-    _scorch_crater(s, 8, 8, 4.5, G, 2, seed=12)
-    _scorch_crater(s, 30, 8, 3.5, G, 1, seed=13)
-    _scorch_crater(s, 32, 32, 2.8, G, 1, seed=14)
+    # ---- craters: satellite (centre), fuel sphere (north-west), heat shield (south-east) + 3 small ones
+    #      everything lies on ONE trail running north-west -> south-east, densest around the satellite
+    _scorch_crater(s, 19, 20, 7.0, G, 2, seed=11)
+    _scorch_crater(s, 9, 9, 4.5, G, 2, seed=12)
+    _scorch_crater(s, 33, 34, 5.0, G, 2, seed=13)
+    _scorch_crater(s, 27, 27, 2.5, G, 1, seed=14)
+    _scorch_crater(s, 40, 21, 3.0, G, 1, seed=15)
+    _scorch_crater(s, 23, 33, 2.5, G, 1, seed=16)
 
-    # ---- satellite body: pale white/quartz box, dark corner posts + top edge only, sunk one extra block
-    bx1, by1, bz1, bx2, by2, bz2 = 14, G - 1, 17, 20, G + 3, 21
-    sh.box(s, bx1, by1 - 1, bz1 + 1, bx2, by1 - 1, bz2 - 1, scorch)              # impact fill under the body
-    sh.box(s, bx1, by1 - 1, bz1, bx2, by1 - 1, bz2, scorch)
+    # ---- satellite bus (hero): 7 x 5 x 5 white / quartz box, dark edge ribs + mid rib, sunk in its crater
+    bx1, by1, bz1, bx2, by2, bz2 = 16, G - 1, 18, 22, G + 3, 22
+    sh.box(s, bx1, 0, bz1, bx2, 0, bz2, scorch)                                          # impact fill under the body
     sh.hollow_box(s, bx1, by1, bz1, bx2, by2, bz2, SHIP["hull_light"], 1)
-    for (x, z) in ((bx1, bz1), (bx1, bz2), (bx2, bz1), (bx2, bz2)):
+    for (x, z) in ((bx1, bz1), (bx1, bz2), (bx2, bz1), (bx2, bz2), (19, bz1), (19, bz2)):     # corner posts + mid rib
         sh.box(s, x, by1, z, x, by2, z, FRAME)
-    sh.box(s, bx1, by2, bz1, bx2, by2, bz1, FRAME); sh.box(s, bx1, by2, bz2, bx2, by2, bz2, FRAME)
-    sh.box(s, bx1, by2, bz1, bx1, by2, bz2, FRAME); sh.box(s, bx2, by2, bz1, bx2, by2, bz2, FRAME)
-    sh.box(s, bx1 + 1, by1, bz1, bx2 - 1, by1, bz1, LGC); sh.box(s, bx1 + 1, by1, bz2, bx2 - 1, by1, bz2, LGC)
-    sh.box(s, bx1, by1, bz1 + 1, bx1, by1, bz2 - 1, LGC); sh.box(s, bx2, by1, bz1 + 1, bx2, by1, bz2 - 1, LGC)
+    for yy in (by1, by2):
+        sh.box(s, bx1, yy, bz1, bx2, yy, bz1, FRAME); sh.box(s, bx1, yy, bz2, bx2, yy, bz2, FRAME)
+        sh.box(s, bx1, yy, bz1, bx1, yy, bz2, FRAME); sh.box(s, bx2, yy, bz1, bx2, yy, bz2, FRAME)
     sh.box(s, bx1 + 1, by2, bz1 + 1, bx2 - 1, by2, bz2 - 1, LGC)                          # top plate
-    for x in (bx1 + 2, bx2 - 2):                                                           # vents on the top plate
-        s.set(x, by2 + 1, bz1 + 2, st.trapdoor("iron", "north", "bottom", open=False))
-    s.set(bx1 + 3, by2, bz1 + 3, SHIP["frame"]); s.set(bx1 + 1, by2, bz2 - 1, SHIP["frame"])
-    # window strips on the east / west faces (mid height), wing root iron block replaces one cell
-    for z in range(bz1 + 1, bz2):
-        s.set(bx1, by1 + 2, z, SHIP["glass"]); s.set(bx2, by1 + 2, z, SHIP["glass"])
-    s.set(bx1, by1 + 2, 19, SHIP["frame"]); s.set(bx2, by1 + 2, 19, SHIP["frame"])
-    # thruster nozzle on the west end
-    sh.cylinder(s, bx1 - 1, by1 + 3, 20, 0.8, -2, "minecraft:polished_blackstone", axis="x", r2=1.3)
-    s.set(bx1 - 1, by1 + 3, 20, "minecraft:coal_block")
-    # foil-wrapped north face (gold) with quartz clamps
-    sh.box(s, bx1 + 1, by1 + 1, bz1, bx2 - 1, by2 - 1, bz1, "minecraft:gold_block")
-    for x in range(bx1 + 1, bx2, 2):
-        s.set(x, by1 + 2, bz1, "minecraft:quartz_block")
-    s.set(17, by2, 19, "minecraft:observer[facing=up]")
-    s.set(17, by2 + 1, 19, st.lightning_rod("up")); s.set(17, by2 + 2, 19, st.lightning_rod("up"))
-    s.set(15, by2 + 1, 18, st.end_rod("up")); s.set(19, by2 + 1, 20, st.end_rod("up"))
-    s.set(15, by2, 20, "minecraft:daylight_detector"); s.set(19, by2, 18, "minecraft:daylight_detector")
-    s.set(16, by2, 18, SHIP["glass"]); s.set(18, by2, 20, "minecraft:tinted_glass")
-    # breach: south face blown open (2 wide x 2 high) + scorch
-    sh.box(s, 18, by1 + 1, bz2, 19, by1 + 2, bz2, "air")
-    s.set(20, by1 + 1, bz2, st.trapdoor("iron", "west", "bottom", open=True))
-    s.set(18, by1 + 3, bz2, st.stairs(FRAME_STAIR, "north", "top")); s.set(19, by1 + 3, bz2, st.stairs(FRAME_STAIR, "north", "top"))
-    s.set(18, by1, bz2 + 1, st.stairs("polished_blackstone_brick", "north")); s.set(19, by1, bz2 + 1, scorch)
+    sh.box(s, 19, by2, bz1, 19, by2, bz2, FRAME)
+    # south face (camera side): window strips + iron service panel + the breach
+    for x in (17, 18):
+        s.set(x, by1 + 2, bz2, SHIP["glass"])
+    s.set(17, by1 + 1, bz2, IRON); s.set(18, by1 + 1, bz2, st.trapdoor("iron", "north", "bottom", open=True))
+    sh.box(s, 20, by1 + 1, bz2, 21, by1 + 2, bz2, "air")                                 # breach 2 x 2
+    s.set(20, by1 + 3, bz2, st.stairs(FRAME_STAIR, "north", "top")); s.set(21, by1 + 3, bz2, st.stairs(FRAME_STAIR, "north", "top"))
+    s.set(21, by1 + 1, bz2 + 1, st.trapdoor("iron", "south", "bottom", open=True))       # torn plate hanging out
+    _on(s, 20, bz2 + 1, st.campfire(soul=True))                                         # smoke at the breach
+    # north face: 3 blocks of gold MLI foil + quartz clamps + vents; east face vents; west end thruster nozzle
+    for x in (17, 18, 19):
+        s.set(x, by1 + 2, bz1, "minecraft:gold_block")
+    s.set(17, by1 + 1, bz1, "minecraft:quartz_block"); s.set(21, by1 + 2, bz1, "minecraft:quartz_block")
+    for x in (18, 20):
+        s.set(x, by1 + 1, bz1 - 1, st.trapdoor("iron", "north", "bottom", open=True))
+    for z in (19, 20, 21):
+        s.set(bx2 + 1, by1 + 2, z, st.trapdoor("iron", "east", "bottom", open=True))
+    for (yy, z) in ((by1 + 1, 20), (by1 + 3, 20), (by1 + 2, 19), (by1 + 2, 21), (by1 + 2, 20)):
+        s.set(bx1 - 1, yy, z, "minecraft:polished_blackstone")
+    s.set(bx1 - 2, by1 + 2, 20, "minecraft:coal_block")
     # interior: memory module bay, lit
     sh.box(s, bx1 + 1, by1 + 1, bz1 + 1, bx2 - 1, by2 - 1, bz2 - 1, "air")
     sh.box(s, bx1 + 1, by1, bz1 + 1, bx2 - 1, by1, bz2 - 1, SHIP["hull_dark"])
-    s.set(15, by1 + 1, 18, "minecraft:observer[facing=south]"); s.set(15, by1 + 2, 18, "minecraft:observer[facing=south]")
-    s.set(16, by1 + 1, 18, "minecraft:daylight_detector"); s.set(16, by1 + 2, 18, st.redstone_lamp(True))
-    s.set(17, by2 - 1, 19, SHIP["light"])
-    s.set(19, by1 + 1, 18, "minecraft:blast_furnace[facing=south,lit=false]")
-    s.add_chest(18, by1 + 1, 18, "south", "minecraft:chests/end_city_treasure")
-    s.set(15, by1 + 1, 20, SHIP["engine_glow"]); s.set(15, by1 + 2, 20, "minecraft:sea_lantern")
-    s.add_sign(17, by1 + 2, 18, "minecraft:warped_wall_sign[facing=south]", ["SAT ORB-14", "module memoire", "rayonnement", "ne pas ouvrir"])
-    s.set(16, by1 + 1, bz2 + 1, st.campfire(soul=True))                                     # smoke at the breach
-    # wings: east intact (sagging to the snow), west snapped off
-    wy = by1 + 3
-    _wing(s, bx2 + 1, wy, 19, 10, "east", sag=True)
-    s.set(bx2 + 1, wy, 19, "minecraft:iron_block")
-    _wing(s, bx1 - 1, wy, 19, 3, "west", sag=False)
-    s.set(bx1 - 4, wy, 19, st.chain("x")); s.set(bx1 - 5, wy, 19, st.chain("x")); s.set(bx1 - 5, wy - 1, 19, st.chain("y"))
-    # the snapped wing fragment, tumbled, lying along z in the south-west
-    for i in range(7):
-        z = 25 + i
-        for dx in range(-2, 3):
-            x = 7 + dx
-            if abs(dx) == 2:
-                s.set(x, Y, z, "minecraft:iron_bars" if i % 4 != 2 else "minecraft:iron_block")
-            elif i % 4 == 2:
-                s.set(x, Y, z, "minecraft:iron_block")
-            else:
-                s.set(x, Y, z, "minecraft:blue_stained_glass" if i % 4 != 0 else "minecraft:light_blue_stained_glass")
-    s.set(6, Y + 1, 27, "minecraft:blue_stained_glass"); s.set(8, Y + 1, 29, "minecraft:iron_bars")   # buckled cells
-    for (x, z) in ((11, 23), (10, 25), (12, 24), (10, 24)):                                # shards along the tumble path
-        s.set(x, Y, z, "minecraft:blue_stained_glass" if (x + z) % 2 else "minecraft:light_blue_stained_glass")
-    s.set(11, Y, 24, "minecraft:iron_bars")
+    s.set(17, by1 + 1, 19, "minecraft:daylight_detector"); s.set(17, by1 + 2, 19, st.redstone_lamp(True))
+    s.set(17, by1 + 1, 21, "minecraft:observer[facing=east]"); s.set(17, by1 + 2, 21, "minecraft:observer[facing=east]")
+    s.set(19, by1 + 1, 20, SHIP["engine_glow"]); s.set(19, by1 + 2, 20, SHIP["light"])
+    s.set(19, by1, 19, SHIP["light"]); s.set(19, by1, 21, SHIP["light"])
+    s.add_chest(21, by1 + 1, 19, "south", "minecraft:chests/end_city_treasure")
+    s.set(21, by1 + 1, 21, "minecraft:blast_furnace[facing=west,lit=false]")
+    s.add_sign(18, by1 + 2, 19, "minecraft:warped_wall_sign[facing=south]", ["SAT ORB-14", "module memoire", "rayonnement", "ne pas ouvrir"])
 
-    # ---- fuel tank sphere, cracked open, blue smoke inside (only the buried underside is scorched)
-    tcx, tcy, tcz = 8, G + 2, 8
-    sh.sphere(s, tcx, tcy, tcz, 3.6, SHIP["frame"], hollow=True, thickness=1.2)
-    sh.torus(s, tcx, tcy, tcz, 3.6, 0.6, FRAME, axis="y")                                  # equator band
-    sh.torus(s, tcx, tcy + 2, tcz, 2.9, 0.4, "minecraft:polished_basalt[axis=y]", axis="y")
-    sh.sphere(s, tcx + 2.5, tcy + 2, tcz + 2.5, 2.4, "air")                                 # the crack
-    for y in range(0, G + 1):
-        sh.replace_in_region(s, tcx - 5, y, tcz - 5, tcx + 5, y, tcz + 5, SHIP["frame"], "minecraft:polished_basalt[axis=y]")
-    s.set(tcx + 1, tcy - 2, tcz + 1, st.campfire(soul=True))
-    s.set(tcx, tcy - 2, tcz, SHIP["engine_glow"]); s.set(tcx - 1, tcy - 2, tcz - 1, SHIP["light"])
-    s.set(tcx, tcy + 4, tcz, st.lightning_rod("up"))                                        # valve on top
-    s.set(tcx - 4, tcy, tcz, st.trapdoor("iron", "east", "bottom", open=True))              # a torn hatch
-    _chunk(s, 12, 13, 2)
+    # ---- dish antenna (r 4) on top of the bus: dark stair rim, quartz slab bowl, iron hub, feed horn
+    dy = by2 + 1
+    sh.ring_stairs(s, 19, dy, 20, 4.0, FRAME_STAIR, half="bottom", outward=True)
+    for x in range(14, 25):
+        for z in range(15, 26):
+            d = math.hypot(x - 19, z - 20)
+            if d < 3.5:
+                s.set(x, dy, z, IRON if d <= 1.2 else st.slab("quartz" if int(d) % 2 else "smooth_quartz"))
+    for (x, z) in ((22, 17), (23, 18), (21, 16)):                                        # torn rim (north-east)
+        s.set(x, dy, z, "air")
+    s.set(19, dy + 1, 20, "minecraft:iron_bars"); s.set(19, dy + 2, 20, "minecraft:iron_bars")
+    s.set(19, dy + 3, 20, st.end_rod("up"))
+    _on(s, 26, 15, st.stairs(FRAME_STAIR, "south")); _on(s, 28, 13, st.stairs(FRAME_STAIR, "west"))   # rim pieces
 
-    # ---- heat shield disc: black only in the centre, ablation gradient to the rim, propped up on the east
-    hx, hz = 30, 8
-    rng = random.Random(7)
-    for x in range(hx - 6, hx + 7):
-        for z in range(hz - 6, hz + 7):
-            dd = math.hypot(x - hx, z - hz)
-            if dd > 5.3:
-                continue
-            raised = x > hx
-            s.set(x, Y, z, "minecraft:polished_blackstone" if dd > 4.4 else scorch)
-            if dd <= 1.8:
-                mat = rng.choice(["minecraft:coal_block", scorch, scorch])
-            elif dd <= 3.3:
-                mat = rng.choice(["minecraft:basalt", "minecraft:polished_basalt[axis=y]", "minecraft:blackstone"])
-            elif dd <= 4.4:
-                mat = rng.choice(["minecraft:polished_basalt[axis=y]", LGC, LGC, "minecraft:tuff"])
-            else:
-                mat = "minecraft:polished_blackstone"
-            s.set(x, Y + 1 if raised else Y, z, mat)
-    sh.ring_stairs(s, hx, Y + 1, hz, 5.4, "polished_blackstone_brick", half="bottom", outward=False)
-    for z in range(hz - 3, hz + 4):
-        s.set(hx, Y + 1, z, st.stairs("polished_blackstone_brick", "west", "bottom"))
-    sh.replace_in_region(s, hx - 6, Y + 1, hz - 6, hx - 1, Y + 1, hz + 6, "minecraft:polished_blackstone_brick_stairs[facing=west,half=bottom,shape=straight]", "air")
-    s.set(hx + 2, Y + 2, hz, st.campfire(soul=True))
-    _chunk(s, hx - 4, hz + 2, 0)
+    # ---- solar wings: east one intact, sagging in 2 folds down to the snow; west one snapped at the root
+    _wing(s, bx2 + 1, by2, 20, 12, "east", bends={6: -1, 9: -1}, ribs=(3,))
+    _wing(s, bx1 - 1, by2, 20, 3, "west")
+    for z in (18, 22):
+        s.set(bx1 - 4, by2, z, "minecraft:iron_bars")                                    # torn rails
+    s.set(bx1 - 4, by2, 20, st.chain("x")); s.set(bx1 - 4, by2 - 1, 20, st.chain("y")); s.set(bx1 - 4, by2 - 2, 20, st.chain("y"))
+    # the snapped wing, tumbled 4-6 blocks south-west, lying along z and bent up in two steps
+    _wing(s, 6, Y, 24, 9, "south", bends={5: 1, 7: 1}, ribs=(2,))
+    for (x, z) in ((6, 32), (8, 32), (4, 32)):                                           # chunks it came to rest on
+        s.set(x, Y, z, FRAME); s.set(x, Y + 1, z, FRAME)
+    s.set(5, Y, 33, "minecraft:cobbled_deepslate")
+    for (x, z, b) in ((10, 23, "minecraft:blue_stained_glass"), (11, 22, "minecraft:light_blue_stained_glass"),
+                      (9, 23, "minecraft:iron_bars"), (10, 24, "minecraft:iron_bars"), (12, 23, st.slab("polished_deepslate"))):
+        _on(s, x, z, b)                                                                  # shards along the tumble path
 
-    # ---- small crater with a torn panel smoking in it
-    _panel(s, 30, G, 33, "east")
-    s.set(32, G, 31, st.campfire(soul=True))
+    # ---- fuel tank sphere (north-west), iron, sunk in its crater, a quarter wedge torn open toward the satellite
+    tcx, tcy, tcz = 9, G + 1, 9
+    sh.sphere(s, tcx, tcy, tcz, 3.0, IRON, hollow=True, thickness=1.2)
+    sh.torus(s, tcx, tcy, tcz, 3.0, 0.5, FRAME, axis="y")                                 # equator band
+    cut = set()
+    for x in range(tcx + 1, tcx + 5):
+        for y in range(tcy, tcy + 5):
+            for z in range(tcz + 1, tcz + 5):
+                if not s.is_air(x, y, z) and "snow" not in s.get(x, y, z):
+                    cut.add((x, y, z)); s.set(x, y, z, "air")
+    for (x, y, z) in sorted(cut):                                                          # torn metal along the crack
+        for (nx, ny, nz, f) in ((x - 1, y, z, "east"), (x, y, z - 1, "south"), (x, y - 1, z, "up")):
+            b = s.get(nx, ny, nz)
+            if b == IRON and (nx, ny, nz) not in cut:
+                r = rng.random()
+                if r < 0.35:
+                    s.set(nx, ny, nz, st.stairs(FRAME_STAIR, f if f != "up" else "east", "top" if f == "up" else "bottom"))
+                elif r < 0.6 and f != "up":
+                    s.set(nx, ny, nz, st.trapdoor("iron", f, "bottom", open=True))
+    s.set(tcx, tcy - 2, tcz, st.campfire(soul=True))                                      # blue smoke inside
+    s.set(tcx - 1, tcy - 2, tcz - 1, SHIP["light"]); s.set(tcx - 1, tcy - 1, tcz - 1, SHIP["engine_glow"])
+    s.set(tcx, tcy + 4, tcz, "minecraft:iron_bars"); s.set(tcx, tcy + 5, tcz, "minecraft:iron_bars")   # valve
+    s.set(tcx, tcy + 6, tcz, st.lightning_rod("up"))
+    s.set(tcx - 3, tcy + 1, tcz - 1, st.trapdoor("iron", "east", "bottom", open=True))    # a torn hatch
+    sh.texturize(s, IRON, [(IRON, 7), (LGC, 2), (FRAME, 1)], seed=8, region=(5, 0, 5, 13, 8, 13))
+    _chunk(s, 13, 13, 0)
 
-    # ---- bent antenna mast
-    ax, az = 22, 32
+    # ---- heat shield disc (r 5.5) at the south-east end of the trail, propped up in its crater
+    _heat_shield(s, 36, 34, 5.5, G, Y)
+
+    # ---- tall bent antenna mast (north-east of the bus): dark base plate, iron-bar column, kinked, chain top
+    ax, az = 29, 11
     sh.box(s, ax - 1, Y, az - 1, ax + 1, Y, az + 1, SHIP["hull_dark"])
-    s.set(ax, Y, az, SHIP["frame"])
-    for y in range(Y + 1, Y + 4):
+    s.set(ax, Y, az, IRON)
+    s.set(ax - 1, G, az + 1, SHIP["light"]); s.set(ax - 1, Y, az + 1, st.trapdoor("iron", "north", "bottom", open=False))
+    s.set(ax + 1, Y + 1, az - 1, "minecraft:observer[facing=up]")
+    for y in range(Y + 1, Y + 6):
         s.set(ax, y, az, "minecraft:iron_bars")
-    s.set(ax, Y + 4, az, st.chain("y"))
-    s.set(ax, Y + 5, az, st.chain("x")); s.set(ax + 1, Y + 5, az, st.chain("x")); s.set(ax + 2, Y + 5, az, st.chain("x"))
-    s.set(ax + 3, Y + 5, az, st.lightning_rod("east")); s.set(ax + 3, Y + 4, az, st.lightning_rod("down"))
-    s.set(ax + 1, Y + 6, az, st.lightning_rod("up"))
-    s.set(ax - 1, Y + 1, az + 1, "minecraft:observer[facing=up]")
-    # snapped-off dish antenna lying on the snow (3x3 iron trapdoor plate + feed horn), south of the body
-    for dx in (-1, 0, 1):
-        for dz in (-1, 0, 1):
-            s.set(14 + dx, Y, 30 + dz, st.trapdoor("iron", "north", "bottom", open=False) if (dx or dz) else SHIP["frame"])
-    s.set(14, Y + 1, 30, st.lightning_rod("up")); s.set(15, Y, 28, st.chain("y")); s.set(15, Y, 27, st.chain("z"))
+    s.set(ax + 1, Y + 5, az, "minecraft:iron_bars"); s.set(ax + 2, Y + 5, az, "minecraft:iron_bars")    # the kink
+    for y in range(Y + 6, Y + 10):
+        s.set(ax + 2, y, az, st.chain("y"))
+    s.set(ax + 2, Y + 10, az, st.lightning_rod("up"))
+    s.set(ax + 1, Y + 9, az, st.lightning_rod("west")); s.set(ax + 3, Y + 9, az, st.lightning_rod("east"))
+    s.set(ax + 3, Y + 5, az, st.lightning_rod("east"))
 
-    # ---- hull sheets (big pale pieces) + small panels + directional debris trail east / south-east of the body
-    _sheet(s, 24, Y, 26, "east")
-    _sheet(s, 3, Y, 15, "south")
-    _panel(s, 12, Y, 3, "east")
-    _panel(s, 33, Y, 22, "north")
-    for (x, z, k) in ((23, 24, 0), (27, 22, 1), (31, 25, 3), (34, 27, 2), (29, 30, 0), (33, 15, 1),
-                      (10, 21, 3), (5, 23, 0), (19, 27, 1), (21, 5, 3), (17, 9, 0), (4, 30, 2)):
+    # ---- hull sheets, small panels and wreckage chunks along the trail (dense near the bus, thinning south-east)
+    _sheet(s, 24, Y, 29, "east")
+    _sheet(s, 41, Y, 25, "south")
+    _panel(s, 38, G, 21, "east"); s.set(40, G, 19, st.campfire(soul=True))
+    _panel(s, 29, Y, 6, "north")
+    for (x, z, k) in ((24, 25, 1), (26, 30, 3), (30, 27, 0), (33, 30, 2), (30, 38, 3), (39, 39, 1), (14, 30, 2)):
         _chunk(s, x, z, k)
+    for _ in range(16):                                                                   # scorch spots on the axis
+        t = rng.random() ** 1.6
+        x, z = round(23 + t * 14 + rng.uniform(-2.5, 2.5)), round(23 + t * 12 + rng.uniform(-2.5, 2.5))
+        if s.inside(x, G, z) and s.get(x, G, z) == SNOW and s.is_air(x, Y, z):
+            s.set(x, G, z, rng.choice(["minecraft:basalt", "minecraft:tuff", "minecraft:blackstone"]))
     sh.texturize(s, scorch, MIX_SCORCH, seed=4)
     sh.texturize(s, SHIP["hull_light"], MIX_WHITE, seed=5)
     sh.snow_cover(s, y_min=Y, prob=0.3, seed=6, layers=(1, 2),
-                  skip=["glass", "iron", "gold", "quartz", "lamp", "observer", "detector", "blackstone", "basalt", "coal", "calcite"])
+                  skip=["glass", "iron", "gold", "quartz", "lamp", "observer", "detector", "blackstone", "basalt", "coal",
+                        "calcite", "log", "polished_deepslate", "light_gray_concrete"])
     return s.cropped(pad=1)
 
 

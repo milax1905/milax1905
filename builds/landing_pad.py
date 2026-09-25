@@ -10,7 +10,8 @@ villain_ship     : sleek black gunship, gear down: lofted flattened hull, glowin
                    magenta 2x2 nozzle core over sea lanterns, blue idle smoke) protruding past the tail, tinted +
                    purple cockpit canopy with a magenta eyebrow, chin turret, wing-tip cannons, starboard boarding
                    ramp, lit walkable interior (cockpit + cargo bay).
-Both ground=1; the ship is meant to be pasted on top of the pad (centre of the H, ground plane on the floor)."""
+Both ground=1; the ship is meant to be pasted on top of the pad (centre of the H, ground plane on the floor).
+True sizes: city_landing_pad 38 x 17 x 40 (the two stairways add 2 to the length), villain_ship ~24 x 14 x 30."""
 import math
 
 import numpy as np
@@ -191,12 +192,20 @@ def build_pad():
     s.set(bx2 - 1, by, bz2 - 1, st.facing_block("minecraft:lectern", "west"))
     s.add_sign(bx1 + 2, by + 2, bz1 + 1, SIGN + "[facing=east]", ["TOUR PISTE 01", "vaisseau 1: OK", "alerte niv 2", "intrus: aucun"])
     s.set(bx2 + 1, by + 1, bz2, st.wall_banner("purple", "east"))
-    # roof gear
+    # roof: slab parapet along the edge, two flat vent hatches, gear
+    for x in range(bx1, bx2 + 1):
+        for z in (bz1, bz2):
+            s.set(x, by + 4, z, st.slab("deepslate_tile"))
+    for z in range(bz1, bz2 + 1):
+        for x in (bx1, bx2):
+            s.set(x, by + 4, z, st.slab("deepslate_tile"))
+    for z in (18, 21):
+        s.set(8, by + 4, z, st.trapdoor("iron", "north", "bottom"))
     s.set(6, by + 4, 17, st.lightning_rod("up")); s.set(6, by + 5, 17, st.lightning_rod("up"))
     s.set(10, by + 4, 22, st.end_rod("up"))
     for z in (19, 20):
         s.set(6, by + 4, z, "minecraft:daylight_detector")
-    s.set(9, by + 4, 17, st.trapdoor("iron", "east", "top", open=True))     # small dish panel
+    s.set(9, by + 5, 17, st.trapdoor("iron", "east", "top", open=True))     # small dish panel on the parapet
     # ---------------------------------------------------------------- fuel depot (east, north half: keeps the ship's starboard ramp clear)
     tx, ty = 31, FLOOR + 2
     sh.cylinder(s, tx, ty, 10, 1.0, 9, st.log("minecraft:polished_basalt", "z"), axis="z")  # tank z=10..19, plus-shaped section
@@ -207,17 +216,29 @@ def build_pad():
     for z in range(10, 20):                                          # cradle
         s.set(tx - 1, ty - 1, z, st.stairs("polished_deepslate", "east"))
         s.set(tx + 1, ty - 1, z, st.stairs("polished_deepslate", "west"))
-    s.set(tx, ty + 2, 14, st.trapdoor("iron", "north", "bottom"))    # hatch on top
+    s.set(tx, ty + 2, 15, st.trapdoor("iron", "north", "bottom"))    # hatch on top
     s.set(tx, ty + 2, 18, st.lightning_rod("up"))                    # vent
     s.add_sign(tx, ty, 21, SIGN + "[facing=south]", ["CARBURANT", "NE PAS FUMER", "DANGER", ""])
-    for z in (10, 14):                                               # pumps + hoses + nozzles (raw copper bodies)
-        s.set(26, FLOOR + 1, z, "minecraft:cut_copper")
+    # pump station: kerb of blackstone slabs, two pumps (stacked barrels, copper cap, rod nozzle), hoses to the tank
+    # and one long hose on the floor to a copper coupling near the H (the ship's refuel point)
+    for x in range(25, 28):
+        for z in range(9, 16):
+            if (x in (25, 27) or z in (9, 15)) and s.is_air(x, FLOOR + 1, z):
+                s.set(x, FLOOR + 1, z, st.slab("polished_blackstone"))
+    for z in (11, 13):
+        s.set(26, FLOOR + 1, z, "minecraft:barrel[facing=up,open=false]")
         s.set(26, FLOOR + 2, z, "minecraft:barrel[facing=up,open=false]")
-        s.set(26, FLOOR + 3, z, st.trapdoor("iron", "north", "bottom"))
-        s.set(26, FLOOR + 2, z - 1, "minecraft:lever[face=wall,facing=north,powered=false]")
+        s.set(26, FLOOR + 3, z, "minecraft:cut_copper")
+        s.set(26, FLOOR + 4, z, st.lightning_rod("up"))
+        s.set(25, FLOOR + 3, z, st.lightning_rod("west"))            # nozzle
+        s.set(26, FLOOR + 2, z + 1, "minecraft:lever[face=wall,facing=south,powered=False]".replace("False", "false"))
         for x in range(27, 30):
-            s.set(x, FLOOR + 2, z, st.chain("x"))
-        s.set(25, FLOOR + 2, z, st.lightning_rod("west"))
+            s.set(x, FLOOR + 3, z, st.chain("x"))                    # hoses to the tank
+    s.set(26, FLOOR + 3, 12, OXCUT)                                  # manifold between the pumps
+    for x in range(21, 25):
+        s.set(x, FLOOR + 1, 12, st.chain("x"))                       # floor hose to the coupling
+    s.set(20, FLOOR + 1, 12, "minecraft:copper_block")               # coupling
+    s.set(20, FLOOR + 2, 12, st.trapdoor("iron", "north", "bottom"))
     # crates + a loot barrel
     for (x, z) in ((28, 18), (29, 18), (28, 19), (29, 19)):
         s.set(x, FLOOR + 1, z, "minecraft:barrel[facing=up,open=false]")
@@ -301,9 +322,8 @@ def build_pad():
                 depth = layers[0] + int((layers[1] - layers[0] + 0.999) * min(1.0, (n - (1.0 - prob)) / max(prob, 0.01)))
                 s.set(x, y + 1, z, st.snow_layer(max(1, min(8, depth))))
     snow_on(zip(*np.nonzero(oring(14.5, 17.5))), G, 0.42, (1, 4), lean=0.25)           # skirt drifts (leeward east)
-    snow_on(zip(*np.nonzero(oring(14.5, 16.5))), FLOOR, 0.22, (1, 2), lean=0.2)        # floor rim
+    snow_on(zip(*np.nonzero(oring(14.5, 16.5))), FLOOR, 0.25, (1, 1), lean=0.2)        # floor rim (thin, sparse)
     snow_on([(x, z) for x in range(16, 24) for z in (3, 36)], FLOOR, 0.45)             # stair top steps
-    snow_on([(x, z) for x in range(bx1, bx2 + 1) for z in range(bz1, bz2 + 1)], by + 3, 0.4, (1, 3))   # booth roof
     snow_on([(x, z) for x in (cx1, cx1 + 1) for z in (3, 4)], boom_y + 1, 0.8)          # counterweight
     snow_on([(x, z) for x in (cx1, cx1 + 1) for z in (cz1, cz1 + 1)], FLOOR + 9, 0.8)   # crane tower top
     return s.cropped(pad=1)
@@ -312,112 +332,134 @@ def build_pad():
 # =================================================================================================================
 #  GUNSHIP
 # =================================================================================================================
+VENT = "crimson"                   # dark trapdoor material (iron renders as pale patches on the black hull)
+
+
 def build_ship():
-    W, H, L, G = 24, 15, 34, 1
+    W, H, L, G = 24, 15, 30, 1
     s = Schematic(W, H, L, ground=G)
     CX = 11.5
-    secs = [(1, CX, 6.5, 0.6, 0.5), (4, CX, 6.6, 2.0, 1.3), (9, CX, 6.9, 3.4, 2.4),
-            (15, CX, 7.0, 4.2, 3.0), (22, CX, 7.0, 4.0, 2.9), (28, CX, 7.0, 3.0, 2.3)]
+    # (z, cx, cy, rx, ry): nose z=1 .. tail z=26 (2 shorter than round 1), hull lifted so the belly sits at y=5
+    secs = [(1, CX, 7.0, 0.6, 0.5), (4, CX, 7.4, 2.0, 1.4), (9, CX, 8.0, 3.3, 2.6),
+            (14, CX, 8.5, 4.0, 3.6), (20, CX, 8.5, 3.8, 3.3), (26, CX, 8.3, 2.7, 2.3)]
     hull = sh.loft(s, secs, PB, axis="z")
     inner = sh.loft_mask(s, secs, "z", shrink=1.0)
     zi = np.arange(L)[None, None, :]
-    inner &= (zi >= 5) & (zi <= 26)
     yi = np.arange(H)[None, :, None]
-    sh.fill_mask(s, inner & (yi >= 7), "air")                        # interior air y=7..9
-    sh.fill_mask(s, inner & (yi <= 6), PD)                           # flat floor at y=6
+    inner &= (zi >= 5) & (zi <= 24)
+    sh.fill_mask(s, inner & (yi >= 8), "air")                        # interior air y=8.. (players walk at y=8)
+    sh.fill_mask(s, inner & (yi <= 7), PD)                           # flat floor, top at y=7
 
     def shell(x, y, z):
         return s.inside(x, y, z) and hull[x, y, z] and not inner[x, y, z]
 
-    # ---- cockpit: canopy on the upper nose framed by a polished deepslate line, magenta eyebrow behind it
-    for z in range(3, 10):
-        for x in range(9, 15):
-            col = [y for y in range(7, 11) if shell(x, y, z)]
-            for y in col:
-                s.set(x, y, z, PD)
-            if 4 <= z <= 8 and 10 <= x <= 13:
-                for y in col:
-                    s.set(x, y, z, TINT if x in (11, 12) and y < max(col) else GLASS)
-            if z == 9 and 10 <= x <= 13 and col:
-                s.set(x, max(col), z, NEON)                          # eyebrow strip over the canopy
-    for z in (2, 3):                                                 # nose tip dark cone
-        for x in (11, 12):
-            for y in range(5, 9):
+    tops, bots = {}, {}
+    for x in range(W):
+        for z in range(L):
+            ys = [y for y in range(H) if hull[x, y, z]]
+            if ys:
+                tops[(x, z)] = max(ys); bots[(x, z)] = min(ys)
+
+    # ---- nose cone: netherite tip, probe rods
+    for z in (1, 2):
+        for x in range(W):
+            for y in range(H):
                 if shell(x, y, z):
                     s.set(x, y, z, NETH)
-    # ---- dorsal spine + glowing belt line + vents + cheek underglow
+    s.set(11, 7, 0, st.lightning_rod("north")); s.set(12, 7, 0, st.lightning_rod("north"))
+    # ---- cockpit: tinted canopy (upper shell rows, x 10..13, z 4..8) in a polished deepslate frame, magenta eyebrow on z=9
+    for z in range(3, 10):
+        for x in range(9, 15):
+            col = [y for y in range(8, 13) if shell(x, y, z)]
+            for y in col:
+                s.set(x, y, z, PD)                                   # frame / nose deck
+            if 4 <= z <= 8 and 10 <= x <= 13:
+                for y in col:
+                    s.set(x, y, z, TINT)
+            if z == 9 and 11 <= x <= 12 and col:
+                s.set(x, max(col), z, NEON)                          # eyebrow strip over the canopy
+    # ---- dorsal: dark spine (x 10..13), panel lines, one purple belt on the FLANKS at y=8, keel light bar underneath
     for z in range(10, 27):
         col = [(x, y) for x in range(W) for y in range(H) if shell(x, y, z)]
         top = {}
         for x, y in col:
             top[x] = max(top.get(x, -1), y)
         for x, y in top.items():
-            if abs(x - CX) <= 0.5 and 12 <= z <= 24:
-                s.set(x, y, z, GLASS)                                # neon dorsal spine (lit by the bay end rods)
-            elif abs(x - CX) <= 1.5:
-                s.set(x, y, z, PD)
-        xs_at7 = [x for x, y in col if y == 7]
-        if xs_at7:
-            for x in (min(xs_at7), max(xs_at7)):
-                s.set(x, 7, z, GLASS)                                # continuous purple belt line
-                ix = x + (1 if x < CX else -1)
-                if s.inside(ix, 7, z):
-                    s.set(ix, 7, z, LANT)                            # lantern behind the glass (ledge inside the bay)
-        xs_at6 = [x for x, y in col if y == 6]
-        if xs_at6:
-            for x in (min(xs_at6), max(xs_at6)):
-                s.set(x, 6, z, GLASS)
-                ix = x + (1 if x < CX else -1)
-                if s.inside(ix, 6, z) and inner[ix, 6, z]:
-                    s.set(ix, 6, z, LANT)                            # floor-edge light strip inside
-        if z % 3 == 0:
-            xs_at8 = [x for x, y in col if y == 8]
+            if abs(x - CX) <= 1.5:
+                s.set(x, y, z, PD)                                   # spine deck
+        if z % 4 == 0:                                               # recessed panel lines on the flanks
+            for yy in (9, 10):
+                xs_ = [x for x, y in col if y == yy]
+                if xs_:
+                    s.set(min(xs_), yy, z, DT); s.set(max(xs_), yy, z, DT)
+        xs_at8 = [x for x, y in col if y == 8]
+        if xs_at8 and z <= 25:
             for x in (min(xs_at8), max(xs_at8)):
-                ox = x + (-1 if x < CX else 1)
-                if s.inside(ox, 8, z) and s.is_air(ox, 8, z):
-                    s.set(ox, 8, z, st.trapdoor("iron", "west" if x < CX else "east", "top", open=True))  # vent panel
-    # ---- keel underglow: purple glass along the bottom centreline, lanterns above (starts behind the nose gear)
-    for z in range(10, 27):
+                s.set(x, 8, z, GLASS)                                # continuous purple belt line
+                ix = x + (1 if x < CX else -1)
+                if s.inside(ix, 8, z) and (not inner[ix, 8, z] or z % 4 == 0) and hull[ix, 9, z]:
+                    s.set(ix, 8, z, LANT)                            # lantern behind the glass (never a top cell)
+    # dorsal ridge: 2-wide slab spine on top of the fuselage, with 3 small glass light pockets over the bay
+    for z in range(11, 27):
         for x in (11, 12):
-            ys = [y for y in range(3, 8) if shell(x, y, z)]
-            if ys:
-                s.set(x, ys[0], z, GLASS)
-                if s.inside(x, ys[0] + 1, z) and not inner[x, ys[0] + 1, z] or (s.inside(x, ys[0] + 1, z) and inner[x, ys[0] + 1, z] and ys[0] + 1 <= 6):
-                    s.set(x, ys[0] + 1, z, LANT)
-    # ---- wings (high shoulder mount, forward swept) at y=9, slab bevel around, tip pods, cannons
-    WY = 9
+            yt = tops.get((x, z))
+            if yt is None:
+                continue
+            if z in (13, 17, 21):
+                s.set(x, yt, z, GLASS)
+                if s.inside(x, yt - 1, z) and inner[x, yt - 1, z]:
+                    s.set(x, yt - 1, z, LANT)                        # ceiling light seen through the pocket
+            elif s.is_air(x, yt + 1, z):
+                s.set(x, yt + 1, z, st.slab("polished_blackstone"))
+    # keel: sea lanterns in the bottom shell cells, purple glass light bar hanging under them
+    for z in range(11, 25):
+        for x in (11, 12):
+            yb = bots.get((x, z))
+            if yb is not None and yb >= 4:
+                s.set(x, yb, z, LANT)
+                s.set(x, yb - 1, z, GLASS)
+    # ---- wings (high shoulder mount, forward swept) at y=10, slab bevel around, root fillet, tip pods, cannons
+    WY = 10
+
     def wing(sign):
         def X(dx):                                                   # mirror helper around CX
             return CX + sign * dx
         root_x, tip_x = X(3.5), X(11.0)
-        pts = [(root_x, 27.5), (root_x, 17.0), (tip_x, 9.0), (tip_x, 13.0)]
-        big = [(root_x, 28.3), (root_x, 16.0), (tip_x + sign * 0.9, 8.0), (tip_x + sign * 0.9, 14.0)]
+        pts = [(root_x, 26.5), (root_x, 16.5), (tip_x, 8.5), (tip_x, 12.5)]
+        big = [(root_x, 27.3), (root_x, 15.5), (tip_x + sign * 0.9, 7.5), (tip_x + sign * 0.9, 13.5)]
         before = s.data.copy()
         sh.polygon_prism(s, big, WY, WY, st.slab("deepslate_tile"))
         sh.polygon_prism(s, pts, WY, WY, PD)
-        # keep hull cells intact under the polygon
-        m = hull[:, WY, :]
+        m = hull[:, WY, :]                                           # keep hull cells intact under the polygon
         s.data[:, WY, :][m] = before[:, WY, :][m]
-        # thick root fairing (y=8) close to the hull
-        fair = [(root_x, 26.0), (root_x, 18.0), (X(5.5), 16.0), (X(5.5), 22.0)]
+        # underside: thick root fairing + leading / trailing edge ribs (top-half slabs under the wing)
+        fair = [(root_x, 25.5), (root_x, 17.5), (X(6.0), 16.0), (X(6.0), 24.0)]
         sh.polygon_prism(s, fair, WY - 1, WY - 1, st.slab("polished_deepslate", "top"))
-        # leading-edge rib under the wing (1-wide strip along the leading edge)
-        rib = [(root_x, 17.0), (tip_x, 9.0), (tip_x, 10.2), (root_x, 18.2)]
-        sh.polygon_prism(s, rib, WY - 1, WY - 1, st.slab("polished_deepslate", "top"))
+        rib_l = [(root_x, 16.5), (tip_x, 8.5), (tip_x, 9.7), (root_x, 17.7)]
+        sh.polygon_prism(s, rib_l, WY - 1, WY - 1, st.slab("polished_deepslate", "top"))
+        rib_t = [(root_x, 26.5), (tip_x, 12.5), (tip_x, 11.3), (root_x, 25.3)]
+        sh.polygon_prism(s, rib_t, WY - 1, WY - 1, st.slab("polished_deepslate", "top"))
         s.data[:, WY - 1, :][hull[:, WY - 1, :]] = before[:, WY - 1, :][hull[:, WY - 1, :]]
+        # root fillet: slab ridge on top of the wing along the fuselage (hull-to-wing blending)
+        for dx in (3.5, 4.5):
+            fx = int(round(X(dx) - (0.5 if sign > 0 else -0.5)))
+            for z in range(17, 26):
+                if s.get(fx, WY, z) == PD and s.is_air(fx, WY + 1, z):
+                    s.set(fx, WY + 1, z, st.slab("polished_blackstone"))
         # energy conduit: purple glass line from the root to the tip
         for i in range(10):
             f = i / 9.0
             cx_ = root_x + (tip_x - root_x) * f - (0.5 if sign > 0 else -0.5)
-            cz_ = 22.5 - 11.0 * f
+            cz_ = 21.5 - 11.0 * f
             x, z = int(round(cx_)), int(round(cz_))
-            if s.get(x, WY, z) == PD:
+            if s.get(x, WY, z) == PD and s.is_air(x, WY + 1, z):
                 s.set(x, WY, z, GLASS)
         # crying obsidian wing-root blocks (power couplings)
-        rx_ = int(round(root_x - (0.5 if sign > 0 else -0.5)))
-        for z in (18, 25):
-            s.set(rx_, WY, z, CRY)
-        # tip: find wing cells at the tip column
+        rx_ = int(round(X(5.5) - (0.5 if sign > 0 else -0.5)))
+        for z in (18, 24):
+            if s.get(rx_, WY, z) == PD:
+                s.set(rx_, WY, z, CRY)
+        # tip: netherite tip column with a position light
         tx = int(round(tip_x - (0.5 if sign > 0 else -0.5)))
         tx = min(max(tx, 0), W - 1)
         zs_tip = [z for z in range(L) if s.get(tx, WY, z) != "minecraft:air"]
@@ -434,13 +476,13 @@ def build_ship():
                 zl = min(zs_g)
                 s.set(gx, WY, zl - 1, st.lightning_rod("north"))
                 s.set(gx, WY, zl - 2, st.lightning_rod("north"))
-        # trailing-edge flaps (iron trapdoors hinged on the wing edge)
+        # trailing-edge flaps (dark trapdoors hinged on the wing edge)
         for fx in (tx - sign, tx - 2 * sign):
             zs_w = [z for z in range(L) if s.get(fx, WY, z) != "minecraft:air" and "slab" not in s.get(fx, WY, z)]
             if zs_w:
                 zt = max(zs_w) + 1
                 if s.inside(fx, WY, zt) and s.is_air(fx, WY, zt):
-                    s.set(fx, WY, zt, st.trapdoor("iron", "south", "top", open=True))
+                    s.set(fx, WY, zt, st.trapdoor(VENT, "south", "top", open=True))
         # hard-point pods under the wing (missile pods), two per wing, outboard of the engine
         for dx, plen in ((9.5, 3), (8.5, 4)):
             px = int(round(X(dx) - (0.5 if sign > 0 else -0.5)))
@@ -453,75 +495,74 @@ def build_ship():
                 s.set(px, WY - 1, zl + plen, NEON)
     wing(1)
     wing(-1)
-    # ---- engine pods: 4x4 rounded section on the wing roots, z=17..31 (2 past the tail), 2x2 magenta core
+    # ---- engine pods: 4x4 rounded section on the wing roots, z=17..28 (2 past the tail), 2x2 magenta core
     for ex in (5.5, 17.5):
         ey = 8.5
         xa, xb = int(ex - 1.5), int(ex + 1.5)                        # 4..7 / 16..19
         xi0, xi1 = int(ex - 0.5), int(ex + 0.5)                      # 5,6 / 17,18
-        sh.elliptic_cylinder(s, ex, ey, 18, 1.5, 1.5, 12, PB, axis="z")   # body z=18..30
-        for z in range(18, 31):
+        sh.elliptic_cylinder(s, ex, ey, 17, 1.5, 1.5, 12, PB, axis="z")   # body z=17..28
+        for z in range(17, 29):
             for x in (xi0, xi1):
                 s.set(x, 10, z, DT if (z + x) % 2 else PD)                     # top spine panels
-            # bevel the 4 cut corners with stairs so the pod reads round
-            s.set(xa, 10, z, st.stairs("polished_blackstone", "east", "bottom"))
-            s.set(xb, 10, z, st.stairs("polished_blackstone", "west", "bottom"))
+            # bevel the 4 cut corners with stairs so the pod reads round (top corners only where free of the wing)
+            if s.is_air(xa, 10, z):
+                s.set(xa, 10, z, st.stairs("polished_blackstone", "east", "bottom"))
+            if s.is_air(xb, 10, z):
+                s.set(xb, 10, z, st.stairs("polished_blackstone", "west", "bottom"))
             s.set(xa, 7, z, st.stairs("polished_blackstone", "east", "top"))
             s.set(xb, 7, z, st.stairs("polished_blackstone", "west", "top"))
-        for z in (21, 25):                                           # panel lines / vents on the flanks
+        for z in (20, 24):                                           # panel lines on the flanks
             s.set(xa, 9, z, DT); s.set(xb, 9, z, DT)
-        # intake face (z=17): netherite lip + 2x2 tinted glass
+        # intake face (z=16): netherite lip + 2x2 tinted glass
         for x in range(xa, xb + 1):
             for y in (8, 9):
-                s.set(x, 8 if y == 8 else 9, 17, NETH)
+                s.set(x, y, 16, NETH)
         for x in (xi0, xi1):
-            s.set(x, 10, 17, st.slab("polished_blackstone", "top"))
-            s.set(x, 7, 17, st.slab("polished_blackstone"))
+            s.set(x, 10, 16, st.slab("polished_blackstone", "top"))
+            s.set(x, 7, 16, st.slab("polished_blackstone"))
             for y in (8, 9):
-                s.set(x, y, 17, TINT)
+                s.set(x, y, 16, TINT)
         # core: sea lanterns, hidden soul campfire, magenta 2x2 nozzle glow
         for x in (xi0, xi1):
             for y in (8, 9):
-                s.set(x, y, 28, LANT)
-                s.set(x, y, 29, LANT)
-                s.set(x, y, 30, NEON)
-        s.set(xi0, 8, 29, st.campfire(soul=True, facing="south"))    # idle blue smoke
-        # nozzle lip (z=31): tapered ring of stairs/slabs, open centre
-        s.set(xa, 8, 31, st.stairs("polished_blackstone", "east", "top"))
-        s.set(xa, 9, 31, st.stairs("polished_blackstone", "east", "bottom"))
-        s.set(xb, 8, 31, st.stairs("polished_blackstone", "west", "top"))
-        s.set(xb, 9, 31, st.stairs("polished_blackstone", "west", "bottom"))
+                s.set(x, y, 26, LANT)
+                s.set(x, y, 27, LANT)
+                s.set(x, y, 28, NEON)
+        s.set(xi0, 8, 27, st.campfire(soul=True, facing="south"))    # idle blue smoke
+        # nozzle lip (z=29): tapered ring of stairs/slabs, open centre
+        s.set(xa, 8, 29, st.stairs("polished_blackstone", "east", "top"))
+        s.set(xa, 9, 29, st.stairs("polished_blackstone", "east", "bottom"))
+        s.set(xb, 8, 29, st.stairs("polished_blackstone", "west", "top"))
+        s.set(xb, 9, 29, st.stairs("polished_blackstone", "west", "bottom"))
         for x in (xi0, xi1):
-            s.set(x, 10, 31, st.slab("polished_blackstone", "top"))
-            s.set(x, 7, 31, st.slab("polished_blackstone"))
-        # pylon fill between pod and hull (make sure it is attached at y=8 too)
-        px = 8 if ex < CX else 15
-        for z in range(19, 26):
-            if s.is_air(px, 8, z):
-                s.set(px, 8, z, PD)
-    # ---- twin canted fins (netherite leading-edge caps)
-    for fx in (9, 14):
-        s.set(fx, 10, 23, st.stairs("polished_blackstone", "south"))
-        s.set(fx, 10, 24, NETH)
-        sh.box(s, fx, 10, 25, fx, 10, 27, PB)
-        s.set(fx, 11, 25, st.stairs("polished_blackstone", "south"))
-        s.set(fx, 11, 26, NETH)
-        s.set(fx, 11, 27, PB)
-        s.set(fx, 12, 26, st.stairs("polished_blackstone", "south"))
-        s.set(fx, 12, 27, NETH)
-        s.set(fx, 13, 27, st.slab("polished_blackstone"))
-        s.set(fx, 11, 28, NEON)
-        s.set(fx, 12, 28, st.slab("deepslate_tile", "top"))
-    # tail: magenta strip between the fins + antenna
+            s.set(x, 10, 29, st.slab("polished_blackstone", "top"))
+            s.set(x, 7, 29, st.slab("polished_blackstone"))
+    # ---- twin canted fins on the tail deck (x=10 / 13), netherite leading-edge caps, magenta tail lights
+    for fx in (10, 13):
+        for z in range(21, 27):                                      # fill up to the fin base
+            yt = tops.get((fx, z), 11)
+            for y in range(yt + 1, 12):
+                s.set(fx, y, z, PB)
+        s.set(fx, 12, 21, st.stairs("polished_blackstone", "south"))
+        s.set(fx, 12, 22, NETH)
+        sh.box(s, fx, 12, 23, fx, 12, 26, PB)
+        s.set(fx, 13, 23, st.stairs("polished_blackstone", "south"))
+        s.set(fx, 13, 24, NETH)
+        s.set(fx, 13, 25, PB)
+        s.set(fx, 13, 26, NEON)                                      # tail position light, flush in the fin
+    # tail deck between the fins: lantern + magenta strip under the ridge slabs; recessed tail face with a 2x2 core
+    for x in (11, 12):
+        s.set(x, 11, 25, LANT); s.set(x, 11, 26, NEON)
+        s.set(x, 12, 25, st.slab("polished_blackstone")); s.set(x, 12, 26, st.slab("polished_blackstone"))
     for x in range(10, 14):
-        s.set(x, 10, 27, NEON if x in (11, 12) else DT)
-    s.set(11, 11, 24, st.lightning_rod("up")); s.set(11, 12, 24, st.lightning_rod("up"))
+        for y in range(7, 11):
+            if shell(x, y, 26):
+                s.set(x, y, 26, DT)
+    for x in (11, 12):
+        for y in (8, 9):
+            s.set(x, y, 26, NEON); s.set(x, y, 25, LANT)
+    s.set(11, 12, 23, st.lightning_rod("up")); s.set(11, 13, 23, st.lightning_rod("up"))   # antenna
     # ---- smooth the hull shoulders and belly with slabs (step bevels on the loft)
-    tops, bots = {}, {}
-    for x in range(W):
-        for z in range(L):
-            ys = [y for y in range(H) if hull[x, y, z]]
-            if ys:
-                tops[(x, z)] = max(ys); bots[(x, z)] = min(ys)
     for (x, z), yt in tops.items():
         inward = x + (1 if x < CX else -1)
         if tops.get((inward, z), -9) >= yt + 1 and s.is_air(x, yt + 1, z) and not s.is_air(x, yt, z):
@@ -530,69 +571,74 @@ def build_ship():
         inward = x + (1 if x < CX else -1)
         if bots.get((inward, z), 99) <= yb - 1 and s.is_air(x, yb - 1, z) and yb - 1 >= 3:
             s.set(x, yb - 1, z, st.slab("polished_blackstone", "top"))
-    # nose probe
-    s.set(11, 6, 0, st.lightning_rod("north")); s.set(12, 6, 0, st.lightning_rod("north"))
     # ---- chin turret under the nose: netherite block, bevelled, twin rods
     for x in (11, 12):
-        s.set(x, 4, 5, NETH)
-        s.set(x, 4, 6, st.slab("polished_blackstone", "top"))
+        s.set(x, 5, 5, NETH)
+        s.set(x, 5, 6, st.slab("polished_blackstone", "top"))
         for z in (3, 4):
-            s.set(x, 4, z, st.lightning_rod("north"))
-    # ---- landing gear (feet at y=2, struts up to the hull)
-    for (gx, gz) in ((11, 9), (12, 9), (8, 21), (15, 21)):
+            s.set(x, 5, z, st.lightning_rod("north"))
+    # ---- landing gear: slab foot pads at y=2, wall struts + dark gear doors up to the belly
+    for (gx, gz) in ((11, 9), (12, 9), (9, 20), (14, 20)):
         y0 = 3
         while y0 < H and s.is_air(gx, y0, gz):
             y0 += 1
         for y in range(3, y0):
             s.set(gx, y, gz, WALLB)
         s.set(gx, 2, gz, st.slab("polished_deepslate"))
+        dz = 1 if gz > 15 else -1
+        s.set(gx, 2, gz + dz, st.slab("polished_deepslate"))
+        s.set(gx, y0 - 1, gz + dz, st.trapdoor(VENT, "south" if dz > 0 else "north", "top", open=True))   # gear door
     # ---- boarding hatch (starboard / east side, just behind the cockpit bulkhead) + ramp down to the pad
-    HZ = (13, 14)
-    HX = 15                                                          # shell column at z=13..14
+    HZ = (12, 13)
+    HX = max(x for x in range(W) if hull[x, 8, HZ[0]])
     for z in HZ:
-        for y in (7, 8):
+        for y in (8, 9):
             s.set(HX, y, z, "air")
-        s.set(HX, 6, z, DT)                                          # threshold
-        s.set(HX, 9, z, st.trapdoor("iron", "east", "top", open=True))   # raised hatch cover
-        for i, x in enumerate(range(HX + 1, HX + 6)):                # stairs x=16..20, y=6..2
-            y = 6 - i
+        s.set(HX, 7, z, DT)                                          # threshold
+        for i, x in enumerate(range(HX + 1, HX + 6)):                # stairs x=16..20, y=7..3
+            y = 7 - i
             s.set(x, y, z, st.stairs(WALL, "west"))
-            if y - 1 >= 2:
+            if y - 1 >= 3:
                 s.set(x, y - 1, z, st.stairs(WALL, "east", "top"))
-    for z in (HZ[0] - 1, HZ[1] + 1):                                 # ramp rails
+        s.set(HX + 6, 2, z, st.stairs(WALL, "west"))                 # last step on the pad
+    s.set(HX + 5, 2, HZ[0], PBB); s.set(HX + 5, 2, HZ[1], PBB)
+    for y in (8, 9):                                                 # slid-open door panel beside the hatch
+        s.set(HX + 1, y, HZ[1] + 1, st.trapdoor(VENT, "west", "top", open=True))
+    for z in (HZ[0] - 1, HZ[1] + 1):                                 # ramp kerbs
         for i, x in enumerate(range(HX + 1, HX + 5)):
-            s.set(x, 6 - i, z, WALLB)
+            s.set(x, 7 - i, z, WALLB)
     # ---- interior: cockpit
     for x in (11, 12):
-        s.set(x, 7, 8, st.stairs("polished_deepslate", "north"))     # pilot seats
-        s.set(x, 7, 6, "minecraft:daylight_detector")
-    s.set(10, 7, 6, st.redstone_lamp(True)); s.set(13, 7, 6, st.redstone_lamp(True))
-    s.set(10, 7, 7, st.facing_block("minecraft:observer", "up")); s.set(13, 7, 7, st.facing_block("minecraft:observer", "up"))
+        s.set(x, 8, 8, st.stairs("polished_deepslate", "north"))     # pilot seats
+        s.set(x, 8, 6, CRY)                                          # glowing console screens
+    s.set(10, 8, 6, st.facing_block("minecraft:observer", "up")); s.set(13, 8, 6, st.facing_block("minecraft:observer", "up"))
+    s.set(10, 8, 7, DT); s.set(13, 8, 7, DT)                         # side consoles (dark: seen through the canopy)
     # bulkhead between cockpit and bay with a 2-wide door opening
     for x in range(8, 16):
-        for y in (7, 8, 9):
-            if s.inside(x, y, 11) and inner[x, y, 11] and x not in (11, 12):
-                s.set(x, y, 11, PBB)
+        for y in (8, 9, 10):
+            if s.inside(x, y, 10) and inner[x, y, 10] and x not in (11, 12):
+                s.set(x, y, 10, PBB)
     for x in (11, 12):
-        s.set(x, 9, 11, PBB)
-    # cargo bay furniture
-    s.add_chest(9, 7, 24, "east", "minecraft:chests/bastion_other")
-    s.add_chest(14, 7, 24, "west", "minecraft:chests/end_city_treasure")
-    for (x, z) in ((9, 22), (14, 22), (14, 21)):
-        s.set(x, 7, z, "minecraft:barrel[facing=up,open=false]")
-    s.set(9, 7, 21, "minecraft:purple_shulker_box[facing=up]")
-    s.set(14, 8, 22, "minecraft:magenta_shulker_box[facing=up]")
-    for z in (16, 18):                                               # weapon rack on the port wall
-        s.set(9, 8, z, st.lightning_rod("east"))
-    s.set(13, 7, 17, "minecraft:anvil[facing=north]")
-    s.set(9, 7, 14, st.facing_block("minecraft:blast_furnace", "east"))
-    # ceiling lights
-    for z in range(7, 27, 4):
+        if inner[x, 10, 10]:
+            s.set(x, 10, 10, PBB)
+    # cargo bay furniture (walk level y=8)
+    s.add_chest(9, 8, 22, "east", "minecraft:chests/bastion_other")
+    s.add_chest(14, 8, 22, "west", "minecraft:chests/end_city_treasure")
+    for (x, z) in ((9, 21), (14, 21), (14, 23)):
+        s.set(x, 8, z, "minecraft:barrel[facing=up,open=false]")
+    s.set(9, 8, 23, "minecraft:purple_shulker_box[facing=up]")
+    s.set(14, 9, 21, "minecraft:magenta_shulker_box[facing=up]")
+    for z in (15, 17):                                               # weapon rack on the port wall
+        s.set(9, 9, z, st.lightning_rod("east"))
+    s.set(13, 8, 18, "minecraft:anvil[facing=north]")
+    s.set(9, 8, 14, st.facing_block("minecraft:blast_furnace", "east"))
+    # ceiling lights between the glass pockets
+    for z in (11, 15, 19, 23):
         for x in (11, 12):
-            if s.inside(x, 10, z) and not s.is_air(x, 10, z) and s.is_air(x, 9, z):
-                s.set(x, 9, z, st.end_rod("down"))
-    s.add_sign(14, 8, 16, SIGN + "[facing=west]", ["CORBEAU-7", "acces reserve", "equipage", "seulement"])
-    s.set(14, 8, 20, st.wall_banner("purple", "west"))
+            if s.inside(x, 11, z) and not s.is_air(x, 11, z) and s.is_air(x, 10, z):
+                s.set(x, 10, z, st.end_rod("down"))
+    s.add_sign(14, 9, 15, SIGN + "[facing=west]", ["CORBEAU-7", "acces reserve", "equipage", "seulement"])
+    s.set(14, 9, 19, st.wall_banner("purple", "west"))
     # ---- texture the hull
     sh.texturize(s, PB, MIX_HULL, seed=9)
     return s.cropped(pad=1)

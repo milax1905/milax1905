@@ -568,10 +568,44 @@ def stairs_shape_fix(s: Schematic) -> None:
             s.data[x, y, z] = s.pid(st.unparse(name, p))
 
 
+_ATTACH_OPP = {"north": (0, 0, 1), "south": (0, 0, -1), "west": (1, 0, 0), "east": (-1, 0, 0), "up": (0, -1, 0), "down": (0, 1, 0)}
+
+
+def drop_unsupported(s: Schematic) -> List[Tuple[int, int, int, str]]:
+    """Remove wall-attached blocks (wall signs / banners / torches, amethyst buds, ladders, buttons, levers)
+    whose supporting block is air - in game they would pop off as items. Returns what was removed."""
+    removed = []
+    wall_kinds = ("_wall_sign", "_wall_banner", "wall_torch", "_wall_hanging_sign", "ladder", "tripwire_hook")
+    bud_kinds = ("amethyst_cluster", "amethyst_bud")
+    for i, b in list(enumerate(s.blocks_by_id)):
+        if i == 0:
+            continue
+        name, p = st.parse(b)
+        short = name.split(":")[1]
+        f = p.get("facing")
+        is_wall = any(k in short for k in wall_kinds)
+        is_bud = any(k in short for k in bud_kinds)
+        is_btn = (short.endswith("_button") or short == "lever") and p.get("face", "wall") == "wall"
+        if not (is_wall or is_bud or is_btn) or not f:
+            continue
+        dx, dy, dz = _ATTACH_OPP[f]
+        xs, ys, zs = np.nonzero(s.data == i)
+        for x, y, z in zip(xs, ys, zs):
+            x, y, z = int(x), int(y), int(z)
+            if s.is_air(x + dx, y + dy, z + dz):
+                s.data[x, y, z] = 0
+                s.block_entities = [e for e in s.block_entities if e["Pos"] != [x, y, z]]
+                removed.append((x, y, z, short))
+    return removed
+
+
 def finalize(s: Schematic) -> Schematic:
-    """Standard post-processing: autoconnect thin blocks and fix stair corners."""
+    """Standard post-processing: autoconnect thin blocks, fix stair corners, drop unsupported wall blocks."""
     autoconnect(s)
     stairs_shape_fix(s)
+    dropped = drop_unsupported(s)
+    if dropped:
+        print(f"    dropped {len(dropped)} unsupported wall-attached block(s): {dropped[:6]}")
     return s
 
 
@@ -676,3 +710,30 @@ def box_edge_stairs(s: Schematic, x1, y, z1, x2, z2, material: str, half: str = 
     for z in range(z1, z2 + 1):
         s.set(x1 - 1, y, z, st.stairs(material, "east", half))
         s.set(x2 + 1, y, z, st.stairs(material, "west", half))
+
+
+def line6(s: Schematic, p1: Vec, p2: Vec, block: str) -> None:
+    """Face-connected (6-neighbour) 3D line: every step moves along ONE axis, so thin blocks (chains, bars,
+    fences) placed along it touch face to face and read as a continuous cable/rail instead of a dotted line."""
+    x, y, z = int(p1[0]), int(p1[1]), int(p1[2])
+    x2, y2, z2 = int(p2[0]), int(p2[1]), int(p2[2])
+    s.set(x, y, z, block)
+    dx, dy, dz = x2 - x, y2 - y, z2 - z
+    n = abs(dx) + abs(dy) + abs(dz)
+    if n == 0:
+        return
+    ex = ey = ez = 0.0
+    sx, sy, sz = (dx > 0) - (dx < 0), (dy > 0) - (dy < 0), (dz > 0) - (dz < 0)
+    for _ in range(n):
+        ex += abs(dx) / n; ey += abs(dy) / n; ez += abs(dz) / n
+        if ex >= max(ey, ez) and x != x2:
+            x += sx; ex -= 1
+        elif ey >= ez and y != y2:
+            y += sy; ey -= 1
+        elif z != z2:
+            z += sz; ez -= 1
+        elif x != x2:
+            x += sx; ex -= 1
+        else:
+            y += sy; ey -= 1
+        s.set(x, y, z, block)

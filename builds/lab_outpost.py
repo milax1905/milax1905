@@ -1,13 +1,15 @@
 """Two remote-science structures for the Neige world.
 
-lab_outpost_dome : a glass observatory dome with a dark polished-deepslate rib cage (8 meridians up to the ring,
-                   4 to the bevelled apex), on a low white platform: airlock corridor, antenna mast, generator shed
-                   (blue exhaust), stepped solar arrays with a junction box, half buried under a westward drift.
+lab_outpost_dome : a tall glass observatory dome (3-row tinted drum + hemisphere) with thin iron meridians and a
+                   single quartz apex, on a low white platform with a dark skirt: airlock corridor, antenna mast,
+                   generator shed (chimney stack, blue exhaust), stepped solar arrays with a junction box, a deep
+                   westward snow drift lapping the glass.
 bunker_entrance  : a soft snow hill with a blast-door portal set into it, an excavated ramp trench with rails, a short
-                   lit corridor ending in a sealed second door, vents, antenna, pipe + hatch, crystals, outcrops,
-                   an intact and a knocked-over barrier.
+                   lit corridor ending in a sealed second door, capped vents, antenna, pipe + hatch, crystals with
+                   bevelled deepslate outcrops, an intact and a knocked-over barrier (end-rod marker lights).
 
-Both schematics carry NO ground slab: only buried foundations below the ground index (paste with //paste -a).
+Both schematics carry NO ground slab: only buried, tapered foundations below the ground index.
+Paste them with //paste -a (air skipped) so the world snow stays around the foundation.
 """
 import math
 
@@ -15,7 +17,7 @@ import numpy as np
 
 from tools.schem import Schematic
 from tools import shapes as sh, states as st
-from tools.palette import GROUND, MIX_WHITE, MIX_DARK, MIX_SNOW
+from tools.palette import GROUND, MIX_WHITE, MIX_DARK, MIX_SNOW, MIX_LIGHT_GRAY
 
 SNOW = GROUND["snow"]
 DARK = "minecraft:polished_deepslate"
@@ -24,6 +26,7 @@ DARK_WALL = "minecraft:polished_deepslate_wall"
 IRON = "minecraft:iron_block"
 WHITE = "minecraft:white_concrete"
 LGRAY = "minecraft:light_gray_concrete"
+QUARTZ = "minecraft:quartz_block"
 GLASS = "minecraft:glass"
 GLASS_BLUE = "minecraft:light_blue_stained_glass"
 LANTERN = "minecraft:sea_lantern"
@@ -72,6 +75,13 @@ def ellipsoid_mask(s, cx, cy, cz, rx, ry, rz):
     return ((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2 + ((zs - cz) / rz) ** 2 <= 1.0
 
 
+def cylinder_mask(s, cx, cz, r, y1, y2):
+    xs = np.arange(s.w)[:, None, None]
+    ys = np.arange(s.h)[None, :, None]
+    zs = np.arange(s.l)[None, None, :]
+    return ((xs - cx) ** 2 + (zs - cz) ** 2 <= r * r) & (ys >= y1) & (ys <= y2)
+
+
 def wall_panel(s, x, y, z, wall_side):
     """Open iron trapdoor lying flat against the wall that is on `wall_side` of cell (x,y,z)."""
     s.set(x, y, z, st.trapdoor("iron", OPP[wall_side], "top", open=True))
@@ -105,19 +115,50 @@ def crystal_spike(s, x, y, z, h, seed=0):
     s.set(x + 1, y + 2, z, st.facing_block("minecraft:large_amethyst_bud", "up"))
 
 
+def outcrop(s, cx, cz, core, rim, g):
+    """Deepslate showing through the snow: full tiles on the core cells, tile stairs bevelled outward on the rim
+    cells (tall side toward the cluster centre), one buried course under each cell so nothing floats."""
+    for dx, dz in list(core) + list(rim):
+        y = surface_y(s, cx + dx, cz + dz, g)
+        s.set(cx + dx, y - 1, cz + dz, DARK_TILE)
+        if (dx, dz) in core:
+            s.set(cx + dx, y, cz + dz, DARK_TILE)
+        else:
+            s.set(cx + dx, y, cz + dz, st.stairs("deepslate_tile", sh._facing_to_center(dx, dz)))
+
+
+def vent_cap(s, x, y, z):
+    """Chimney head: soul campfire on the stack, four open iron-trapdoor louvres around it (panels against the
+    fire cell), a closed iron trapdoor grille on top (smoke rises through it, the fire only glows through slats)."""
+    s.set(x, y, z, st.campfire(soul=True))
+    for dx, dz in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        s.set(x + dx, y, z + dz, st.trapdoor("iron", sh._facing_to_center(dx, dz), "bottom", open=True))
+    s.set(x, y + 1, z, st.trapdoor("iron", "north", "bottom"))
+
+
+def flat_roof(s, x1, z1, x2, z2, y, seed):
+    """Dark 1-block trim ring with a light-gray textured centre, stair bevel under the overhang, snow on top."""
+    sh.box(s, x1, y, z1, x2, y, z2, DARK)
+    sh.box(s, x1 + 1, y, z1 + 1, x2 - 1, y, z2 - 1, LGRAY)
+    sh.texturize(s, LGRAY, MIX_LIGHT_GRAY, seed=seed, region=(x1 + 1, y, z1 + 1, x2 - 1, y, z2 - 1))
+    sh.box_edge_stairs(s, x1, y, z1, x2, z2, "deepslate_tile", half="top")
+    sh.snow_cover(s, x1 + 1, z1 + 1, x2 - 1, z2 - 1, y_min=y, prob=0.55, seed=seed, layers=(1, 2),
+                  skip=["polished_deepslate", "basalt"])
+
+
 # =============================================================================================== 1. THE DOME
 def build_dome():
-    W, H, L, G = 30, 17, 32, 3
+    W, H, L, G = 30, 20, 32, 3
     s = Schematic(W, H, L, ground=G)
     cx, cz = 14, 15
     R = 8.0                                   # dome radius
     PT = G + 1                                # platform top y
-    CY = PT + 1                               # dome base ring level
+    CY = PT + 4                               # dome centre = top of the 3-row drum (PT+1 dark band, PT+2..3 tint)
+    APEX = CY + 8
 
-    # ---- platform: buried concrete foundation (y=G-1..G), white top, dark rim, deepslate skirt into the snow
+    # ---- platform: buried foundation, white textured top, dark deepslate skirt at ground + dark stair bevel
     sh.cylinder(s, cx, G - 1, cz, 9.5, 1, LGRAY, axis="y")
     sh.cylinder(s, cx, PT, cz, 9.5, 0, WHITE, axis="y")
-    sh.cylinder(s, cx, PT, cz, 9.5, 0, DARK, axis="y", hollow=True, thickness=1.0)
     sh.cylinder(s, cx, G, cz, 10.6, 0, DARK_TILE, axis="y", hollow=True, thickness=1.2)   # skirt ring at ground
     sh.ring_stairs(s, cx, PT, cz, 10.4, "deepslate_tile", half="bottom")                 # skirt bevel
     # corridor floor strip to the east (x=20..27), foundation 2 deep
@@ -132,17 +173,10 @@ def build_dome():
             sh.box(s, x, PT + 1, z, x, PT + 3, z, IRON)
         s.set(24, PT + 2, z, "minecraft:light_blue_stained_glass_pane")   # portholes
         s.set(26, PT + 2, z, "minecraft:light_blue_stained_glass_pane")
-    sh.box(s, 21, PT + 4, 13, 27, PT + 4, 16, DARK)                        # roof slab
-    sh.box(s, 21, PT + 4, 14, 27, PT + 4, 15, WHITE)
+    flat_roof(s, 21, 13, 27, 16, PT + 4, seed=61)
     for x in (22, 25):
-        sh.box(s, x, PT + 4, 13, x, PT + 4, 16, IRON)
-    for x in range(21, 28):                                                  # bevelled roof edge (overhang)
-        s.set(x, PT + 4, 12, st.stairs("deepslate_tile", "south", "top"))
-        s.set(x, PT + 4, 17, st.stairs("deepslate_tile", "north", "top"))
-        s.set(x, PT + 5, 14, st.slab("smooth_quartz"))
-        s.set(x, PT + 5, 15, st.slab("smooth_quartz"))
-    for z in range(13, 17):
-        s.set(28, PT + 4, z, st.stairs("deepslate_tile", "west", "top"))
+        s.set(x, PT + 4, 13, IRON)
+        s.set(x, PT + 4, 16, IRON)
     wall_panel(s, 23, PT + 3, 12, "south")                                  # outside vents under the overhang
     wall_panel(s, 23, PT + 3, 17, "north")
     wall_panel(s, 26, PT + 1, 12, "south")
@@ -162,11 +196,11 @@ def build_dome():
     s.set(28, PT + 3, 15, st.end_rod("east"))
     s.add_sign(28, PT + 2, 13, "minecraft:warped_wall_sign[facing=east]", ["AVANT-POSTE 4", "station", "cryo-labo", "acces reserve"])
     s.set(28, PT + 2, 16, st.wall_banner("light_blue", "east"))
-    for k in range(4):                                                       # rim lights set into the platform edge
+    for k in range(4):                                                       # rim lights sunk into the platform edge
         a = math.pi / 4 + k * math.pi / 2
-        x, z = round(cx + 9.3 * math.cos(a)), round(cz + 9.3 * math.sin(a))
-        if s.get(x, PT, z).startswith(DARK):
-            s.set(x, PT, z, LANTERN)
+        x, z = round(cx + 9.0 * math.cos(a)), round(cz + 9.0 * math.sin(a))
+        s.set(x, G, z, LANTERN)
+        s.set(x, PT, z, GLASS_BLUE)
     s.set(26, PT, 21, "minecraft:barrel[facing=up,open=false]")             # supplies dropped by the shed
     s.set(27, PT, 21, "minecraft:barrel[facing=east,open=false]")
     s.set(26, PT + 1, 21, st.snow_layer(2))
@@ -196,31 +230,33 @@ def build_dome():
     s.set(mx, PT, mz + 3, DARK)                                             # junction block on the snow
     s.set(mx + 1, PT, mz + 3, "minecraft:lever[face=floor,facing=east,powered=false]")
 
-    # ---- generator shed (south-east) with soul exhaust, meter box, light and a short cable to the dome
+    # ---- generator shed (south-east): chimney stack with blue exhaust, meter box, wall light, cable to the dome
     sx1, sz1, sx2, sz2 = 22, 22, 25, 25
     sh.box(s, sx1, G - 1, sz1, sx2, PT, sz2, LGRAY)
     sh.box(s, sx1, PT + 1, sz1, sx2, PT + 3, sz2, LGRAY)
     sh.box(s, sx1 + 1, PT + 1, sz1 + 1, sx2 - 1, PT + 3, sz2 - 1, "air")
     for x, z in ((sx1, sz1), (sx1, sz2), (sx2, sz1), (sx2, sz2)):
         sh.box(s, x, PT + 1, z, x, PT + 3, z, DARK)
-    sh.box(s, sx1, PT + 4, sz1, sx2, PT + 4, sz2, DARK)
-    sh.box_edge_stairs(s, sx1, PT + 4, sz1, sx2, sz2, "deepslate_tile", half="top")
+    flat_roof(s, sx1, sz1, sx2, sz2, PT + 4, seed=62)
     s.set(sx1 + 1, PT + 1, sz1, st.door("iron", "north", "lower", "left", open=True))
     s.set(sx1 + 1, PT + 2, sz1, st.door("iron", "north", "upper", "left", open=True))
     wall_panel(s, sx1 + 2, PT + 2, sz1 - 1, "south")                        # meter box beside the door
     s.set(sx1 + 2, PT + 1, sz1 - 1, st.button("polished_blackstone", "wall", "north"))
     s.set(sx1 + 1, PT + 3, sz1 - 1, st.end_rod("north"))                    # light over the door
     wall_panel(s, sx2 + 1, PT + 2, sz1 + 1, "west")
-    wall_panel(s, sx2 + 1, PT + 2, sz2 - 1, "west")
     wall_panel(s, sx1 + 2, PT + 2, sz2 + 1, "north")
     wall_panel(s, sx1 - 1, PT + 2, sz2 - 1, "east")
+    s.set(sx2, PT + 2, sz2 - 1, GLASS_BLUE)                                 # wall light: lantern behind tinted glass
+    s.set(sx2 - 1, PT + 2, sz2 - 1, LANTERN)
     s.set(sx2 - 1, PT + 1, sz2 - 1, st.facing_block("minecraft:blast_furnace", "west"))
-    s.set(sx2 - 1, PT + 2, sz2 - 1, st.facing_block("minecraft:observer", "west"))
+    s.set(sx2 - 1, PT + 3, sz2 - 1, st.facing_block("minecraft:observer", "west"))
     s.set(sx1 + 1, PT + 1, sz2 - 1, "minecraft:barrel[facing=up,open=false]")
-    s.set(sx1 + 1, PT + 3, sz1 + 1, LANTERN)
+    s.set(sx1 + 1, PT + 3, sz1 + 1, st.end_rod("down"))
+    s.set(sx2 - 1, PT + 4, sz2 - 1, st.log(BASALT, "y"))                    # chimney stack through the roof
     s.set(sx2 - 1, PT + 5, sz2 - 1, st.log(BASALT, "y"))
-    s.set(sx2 - 1, PT + 6, sz2 - 1, st.log(BASALT, "y"))
-    s.set(sx2 - 1, PT + 7, sz2 - 1, st.campfire(soul=True))
+    s.set(sx2 - 1, PT + 6, sz2 - 1, IRON)
+    vent_cap(s, sx2 - 1, PT + 7, sz2 - 1)
+    s.set(sx2 + 1, PT + 1, sz2 - 1, st.trapdoor("iron", "west", "bottom", open=True))   # exhaust vent on the side
     for x in (sx1 - 1, sx1 - 2):                                            # 2-block cable into the dome band
         s.set(x, PT + 3, sz1 - 1, st.chain("x"))
 
@@ -247,7 +283,7 @@ def build_dome():
     s.set(23, PT, 26, st.chain("z"))
 
     # ---- snow drift piled against the west side (built before the shell, carved out of the interior after)
-    snow_mound(s, cx - 6, cz, 7.5, 9.5, 6.5, G, p=1.0, noise=0.3, seed=5, floor=True)
+    snow_mound(s, cx - 6, cz, 7.8, 10.0, 8.5, G, p=1.0, noise=0.3, seed=5, floor=True)
     snow_mound(s, cx - 9, cz + 3, 5.0, 6.0, 2.0, G, p=1.0, noise=0.2, seed=6, floor=True)
 
     # ---- texture + weathering of everything built so far (the shell is added afterwards and stays clean)
@@ -255,70 +291,56 @@ def build_dome():
     sh.texturize(s, SNOW, MIX_SNOW, seed=22)
     sh.snow_cover(s, y_min=PT, prob=0.25, seed=24, layers=(1, 2),
                   skip=["glass", "iron", "lamp", "froglight", "daylight", "lantern", "pane", "purpur", "observer",
-                        "bookshelf", "ice", "detector", "polished_deepslate"])
+                        "bookshelf", "ice", "detector", "polished_deepslate", "concrete", "quartz", "calcite"])
 
-    # ---- dome shell: glass with a dark rib cage standing 1 block proud
-    outer = ellipsoid_mask(s, cx, CY, cz, R + 0.5, R + 0.5, R + 0.5)
-    inner = ellipsoid_mask(s, cx, CY, cz, R - 0.5, R - 0.5, R - 0.5)
-    proud = ellipsoid_mask(s, cx, CY, cz, R + 1.5, R + 1.5, R + 1.5) & ~outer
+    # ---- shell masks: drum (cylinder, PT+1..CY) + hemisphere (CY..APEX); corridor cut-out kept intact
+    xs = np.arange(s.w)[:, None, None]
     ys = np.arange(s.h)[None, :, None]
-    shell = outer & ~inner & (ys >= CY)
-    proud &= (ys >= CY) & (ys <= CY + 5)                                     # ribs stand proud up to the ring
-    interior = inner & (ys >= CY)
+    zs = np.arange(s.l)[None, None, :]
+    drum_out = cylinder_mask(s, cx, cz, R + 0.5, PT + 1, CY - 1)
+    drum_in = cylinder_mask(s, cx, cz, R - 0.5, PT + 1, CY - 1)
+    sph_out = ellipsoid_mask(s, cx, CY, cz, R + 0.5, R + 0.5, R + 0.5) & (ys >= CY)
+    sph_in = ellipsoid_mask(s, cx, CY, cz, R - 0.5, R - 0.5, R - 0.5) & (ys >= CY)
+    corridor = (xs >= 21) & (zs >= 13) & (zs <= 16) & (ys <= PT + 4)
+    shell = ((drum_out & ~drum_in) | (sph_out & ~sph_in)) & ~corridor
+    interior = (drum_in | sph_in) & ~corridor
 
-    def on_rib(dx, dz, y):
-        """8 meridians (proud) up to the ring, then 4 flush 1-wide cardinal ribs to the apex."""
-        n, tol = (8, 1.0) if y <= CY + 5 else (4, 0.5)
+    def on_rib(dx, dz, n):
+        """n one-wide meridians (4 on the dome: continuous cardinal lines; 8 pilasters on the vertical drum)."""
         for k in range(n):
             a = k * 2 * math.pi / n
             ux, uz = math.cos(a), math.sin(a)
             along = dx * ux + dz * uz
             perp = abs(-uz * dx + ux * dz)
-            if along > 0.5 and perp < tol:
+            if along > 0.5 and perp < (0.5 if k % 2 == 0 or n == 4 else 0.72):
                 return True
         return False
 
     for (x, y, z) in np.argwhere(shell):
         x, y, z = int(x), int(y), int(z)
         dx, dz = x - cx, z - cz
-        if y == CY:
-            blk = DARK
-        elif y <= CY + 2:
-            blk = WHITE
-        elif y == CY + 3:
-            blk = GLASS_BLUE
+        if y == PT + 1:
+            blk = DARK                                                      # dark base band on the white platform
+        elif y < CY:
+            blk = IRON if on_rib(dx, dz, 8) else GLASS_BLUE                 # tinted skirt with 8 iron pilasters
+        elif y == CY or y == CY + 4:
+            blk = IRON                                                      # belts: drum top + mid-dome
+        elif y == APEX:
+            blk = QUARTZ if (dx, dz) == (0, 0) else (IRON if (dx == 0 or dz == 0) else GLASS)
         else:
-            blk = GLASS
-        if y >= CY + 8:                                                      # apex: 3x3 cap, bevelled, glass ring
-            if max(abs(dx), abs(dz)) <= 1:
-                blk = DARK
-            elif (abs(dx), abs(dz)) == (2, 0):
-                blk = st.stairs("polished_deepslate", "east" if dx > 0 else "west", "bottom")
-            elif (abs(dx), abs(dz)) == (0, 2):
-                blk = st.stairs("polished_deepslate", "south" if dz > 0 else "north", "bottom")
-            elif abs(dx) == 2 and abs(dz) == 2:
-                blk = st.slab("polished_deepslate")
-            else:
-                blk = GLASS
-        elif y == CY + 5 or (y > CY + 5 and on_rib(dx, dz, y)):               # horizontal ring + apex ribs
-            blk = DARK
+            blk = IRON if on_rib(dx, dz, 4) else GLASS                      # 4 cardinal meridians to the apex
         s.set(x, y, z, blk)
-    for (x, y, z) in np.argwhere(proud):
-        x, y, z = int(x), int(y), int(z)
-        if on_rib(x - cx, z - cz, y):
-            s.set(x, y, z, DARK)
     sh.fill_mask(s, interior, "air")
-    s.set(cx, CY + 9, cz, DARK)
-    s.set(cx, CY + 10, cz, st.lightning_rod("up"))
-    s.set(cx, CY + 7, cz, FROG)                                              # apex glow under the cap
-    for k in range(8):                                                       # end rods hanging from the ring
-        a = k * math.pi / 4
-        for rr in (4.0, 4.5, 5.0, 5.5, 6.0):
-            x, z = round(cx + rr * math.cos(a)), round(cz + rr * math.sin(a))
-            if s.get(x, CY + 5, z) == DARK and s.is_air(x, CY + 4, z):
-                s.set(x, CY + 4, z, st.end_rod("down"))
+    s.set(cx, APEX + 1, cz, st.lightning_rod("up"))
+    s.set(cx, APEX - 1, cz, FROG)                                            # apex glow under the cap
+    for k in range(4):                                                       # end rods on the inside of the belt
+        a = k * math.pi / 2
+        ux, uz = round(math.cos(a)), round(math.sin(a))
+        for rr in range(5, 9):
+            x, z = cx + ux * rr, cz + uz * rr
+            if s.is_air(x, CY, z) and not s.is_air(x + ux, CY, z + uz):
+                s.set(x, CY, z, st.end_rod({(1, 0): "west", (-1, 0): "east", (0, 1): "north", (0, -1): "south"}[(ux, uz)]))
                 break
-    sh.box(s, 21, PT + 1, 14, 23, PT + 3, 15, "air")                        # breach through the shell for the airlock
     # ---- interior floor
     for x in range(cx - 8, cx + 9):
         for z in range(cz - 8, cz + 9):
@@ -363,12 +385,12 @@ def build_dome():
     s.set(cx, PT + 1, cz + 5, "minecraft:barrel[facing=up,open=false]")
     s.set(cx, PT + 2, cz + 5, st.candle("light_blue", 3))
     s.set(cx + 4, PT + 1, cz + 3, "minecraft:barrel[facing=up,open=false]")
-    # ---- frost creeping in through a cracked pane (north-east)
+    # ---- frost creeping in through a cracked pane (north-east, first two dome rows)
     for (x, y, z) in np.argwhere(shell):
         x, y, z = int(x), int(y), int(z)
         a = math.degrees(math.atan2(z - cz, x - cx))
-        if CY + 3 <= y <= CY + 4 and -62 < a < -48 and s.get(x, y, z) in (GLASS, GLASS_BLUE):
-            s.set(x, y, z, "minecraft:glass_pane" if y == CY + 4 else "minecraft:light_blue_stained_glass_pane")
+        if CY + 1 <= y <= CY + 2 and -62 < a < -48 and s.get(x, y, z) == GLASS:
+            s.set(x, y, z, "minecraft:glass_pane")
     fx, fz = cx + 4, cz - 4
     for dx, dz in ((0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (1, -1), (-1, 1)):
         s.set(fx + dx, PT, fz + dz, "minecraft:packed_ice")
@@ -376,22 +398,16 @@ def build_dome():
     s.set(fx, PT + 1, fz, st.snow_layer(2))
     s.set(fx + 1, PT + 1, fz - 1, st.snow_layer(3))
     s.set(fx - 1, PT + 1, fz + 1, st.snow_layer(1))
-    for (x, y, z) in np.argwhere(shell):
-        x, y, z = int(x), int(y), int(z)
-        a = math.degrees(math.atan2(z - cz, x - cx))
-        if y == CY + 5 and -60 < a < -45 and s.is_air(x, y - 1, z):
-            s.set(x, y - 1, z, st.pointed_dripstone("down"))
-    # ---- wind crust: one wedge of snow layers on the two lowest glass rows of the windward (west) side
-    for (x, y, z) in np.argwhere(shell):                                     # first clear any stray layer on the glass
-        x, y, z = int(x), int(y), int(z)
-        if y >= CY + 3 and s.get(x, y + 1, z).startswith("minecraft:snow["):
-            s.set(x, y + 1, z, "air")
+    # ---- wind crust: one contiguous wedge of snow layers on the lower west rows of the dome (windward side),
+    #      thick at the drift, thinning upward, edge broken by noise only on its top row
     for (x, y, z) in np.argwhere(shell):
         x, y, z = int(x), int(y), int(z)
         dx, dz = x - cx, z - cz
-        if dx < -2 and abs(dz) < -dx * 0.8 and CY + 3 <= y <= CY + 4 and s.is_air(x, y + 1, z) and "glass" in s.get(x, y, z):
-            if sh.value_noise2(x, z, 9, 4.0) < 0.6:
-                s.set(x, y + 1, z, st.snow_layer(1 + (x + z) % 2))
+        if not (CY + 1 <= y <= CY + 5 and dx <= -3 and abs(dz) <= -dx * 0.9 and s.is_air(x, y + 1, z)):
+            continue
+        if y == CY + 5 and sh.value_noise2(x, z, 9, 4.0) > 0.55:
+            continue
+        s.set(x, y + 1, z, st.snow_layer({CY + 1: 4, CY + 2: 3, CY + 3: 2, CY + 4: 2, CY + 5: 1}[y]))
     return s.cropped(pad=1)
 
 
@@ -401,14 +417,15 @@ def build_bunker():
     s = Schematic(W, H, L, ground=G)
     hx, hz = 12, 14
     RX, RZ = 11.0, 9.5
-    # ---- ground: only under the hill footprint and the trench (no square slab), 3 deep, noisy edge
+    # ---- ground: only under the hill footprint and the trench, tapered downward (no square slab, no plateau)
     xs = np.arange(W)[:, None, None]
     ys = np.arange(H)[None, :, None]
     zs = np.arange(L)[None, None, :]
     wob = np.array([[sh.value_noise2(x, z, 41, 6.0) for z in range(L)] for x in range(W)])[:, None, :]
-    foot = (((xs - hx) / (RX + 1.5 + wob * 1.5)) ** 2 + ((zs - hz) / (RZ + 1.5 + wob * 1.5)) ** 2) <= 1.0
-    foot |= (xs >= 7) & (xs <= 17) & (zs <= 7)
-    s.data[foot & (ys >= G - 3) & (ys <= G)] = s.pid(SNOW)
+    for y, k, x1, x2 in ((G, 1.0, 7, 17), (G - 1, 0.82, 8, 16), (G - 2, 0.62, 8, 16)):
+        foot = (((xs - hx) / ((RX + 0.5 + wob) * k)) ** 2 + ((zs - hz) / ((RZ + 0.5 + wob) * k)) ** 2) <= 1.0
+        foot |= (xs >= x1) & (xs <= x2) & (zs <= 7)                       # just what the trench walls need
+        s.data[foot & (ys == y)] = s.pid(SNOW)
     # ---- the hill: soft profile with low-frequency noise, layered finish
     snow_mound(s, hx, hz, RX, RZ, 8.6, G, p=1.1, noise=0.6, seed=7)
     # ---- excavated trench + ramp (x=10..14, z=0..5), floor y=G-2
@@ -446,7 +463,7 @@ def build_bunker():
         stripe(s, x, G - 2, 10, x)
     for x in range(10, 15):
         stripe(s, x, G - 2, FZ - 1, x)
-    for k in range(4):                                                       # warning stripes on the door pillars
+    for k in range(4):                                                       # warning stripes on the door jambs
         stripe(s, 10, G - 1 + k, FZ, k)
         stripe(s, 14, G - 1 + k, FZ, k + 1)
     for x in (10, 14):                                                       # lit lintel row
@@ -504,16 +521,15 @@ def build_bunker():
     s.set(12, G + 1, 19, "minecraft:red_stained_glass")
     s.set(12, G + 1, 20, LANTERN)
     s.add_sign(11, G, 18, "minecraft:warped_wall_sign[facing=east]", ["SAS 2", "SCELLE", "danger", "code requis"])
-    # ---- main vent stack with blue smoke (west shoulder of the hill)
+    # ---- main vent stack with blue smoke (west shoulder of the hill): basalt stack, capped grille
     vx, vz = 5, 13
     vy = surface_y(s, vx, vz, G)
     for y in range(vy - 1, vy + 2):
         s.set(vx, y, vz, st.log(BASALT, "y"))
     s.set(vx, vy + 2, vz, DARK)
-    s.set(vx, vy + 3, vz, st.campfire(soul=True))
     for dx, dz in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        s.set(vx + dx, vy + 3, vz + dz, DARK_WALL)
         s.set(vx + dx, vy + 2, vz + dz, st.trapdoor("iron", "north", "top"))
+    vent_cap(s, vx, vy + 3, vz)
     # ---- second, shorter vent on the south slope: basalt stub with an iron grille on top
     vx2, vz2 = 15, 22
     vy2 = surface_y(s, vx2, vz2, G)
@@ -536,18 +552,19 @@ def build_bunker():
     s.set(ax, ay + 2, az + 1, "minecraft:daylight_detector")
     s.set(ax, ay + 1, az + 1, DARK_WALL)
     s.set(ax, ay, az + 1, IRON)
-    # ---- half-buried pipe lying on the snow, coming out of the south-east flank, ending in an inspection hatch
+    # ---- half-buried pipe lying on the snow out of the south-east flank, ending in a low iron inspection hatch
     for x in range(13, 22):
         for z in (21, 22):
             s.set(x, G + 1, z, st.log(BASALT, "x"))
     for x in (15, 19):                                                       # pipe collars
         s.set(x, G + 2, 21, st.slab("polished_deepslate"))
         s.set(x, G + 2, 22, st.slab("polished_deepslate"))
-    sh.box(s, 22, G + 1, 21, 22, G + 2, 22, DARK)                           # hatch head
-    s.set(22, G + 3, 21, st.trapdoor("iron", "north", "bottom"))
-    s.set(22, G + 3, 22, st.trapdoor("iron", "north", "bottom", open=True))
-    s.set(23, G + 2, 21, st.button("polished_blackstone", "wall", "east"))
+    s.set(22, G + 1, 21, IRON)                                               # hatch flange
+    s.set(22, G + 1, 22, IRON)
+    s.set(22, G + 2, 21, st.trapdoor("iron", "north", "bottom"))
+    s.set(22, G + 2, 22, st.trapdoor("iron", "north", "bottom", open=True))
     s.set(23, G + 1, 22, "minecraft:lever[face=wall,facing=east,powered=false]")
+    s.set(23, G + 1, 21, st.button("polished_blackstone", "wall", "east"))
     # ---- blue crystal spikes growing out of the flanks (asymmetric)
     for (x, z, h, sd) in ((2, 17, 5, 0), (20, 9, 4, 1), (8, 22, 3, 0)):
         y = surface_y(s, x, z, G)
@@ -555,37 +572,30 @@ def build_bunker():
     crystal_spike(s, 1, G, 6, 5, 1)                                          # the big one beside the intact barrier
     s.set(3, G + 1, 7, "minecraft:blue_ice")
     s.set(3, G + 2, 7, st.facing_block("minecraft:medium_amethyst_bud", "up"))
-    # ---- deepslate outcrops: the structure showing through the snow
-    for (x, z, cells) in ((6, 19, ((0, 0), (1, 0), (0, 1), (1, 1), (2, 1))),
-                          (17, 19, ((0, 0), (1, 0), (1, 1))),
-                          (4, 9, ((0, 0), (0, 1), (1, 1), (-1, 0)))):
-        for dx, dz in cells:
-            y = surface_y(s, x + dx, z + dz, G)
-            s.set(x + dx, y - 1, z + dz, DARK_TILE)
-            s.set(x + dx, y, z + dz, DARK_TILE if (dx + dz) % 2 == 0 else st.slab("deepslate_tile"))
-        s.set(x, surface_y(s, x, z, G) + 1, z, st.snow_layer(2)) if s.get(x, surface_y(s, x, z, G), z) == DARK_TILE else None
-    # ---- barriers in front of the ramp: one intact (west), one knocked over (east)
+    # ---- bevelled deepslate outcrops clustered at the crystals: the structure showing through the snow
+    outcrop(s, 5, 19, ((0, 0), (1, 0)), ((-1, 0), (2, 0), (0, 1)), G)               # between the two SW spikes
+    outcrop(s, 18, 11, ((0, 0),), ((-1, 0), (0, 1)), G)                             # below the NE spike
+    outcrop(s, 4, 9, ((0, 0), (0, 1)), ((-1, 0), (1, 1), (0, -1)), G)               # beside the big spike
+    # ---- barriers in front of the ramp: one intact (west), one knocked over (east); end-rod marker lights
     bz = 3
     for x in range(1, 8):
         y = surface_y(s, x, bz, G)
         if (x - 1) % 3 == 0:
             s.set(x, y, bz, DARK_WALL)
-            s.set(x, y + 1, bz, YELLOW if ((x - 1) // 3) % 2 == 0 else BLACK)
+            s.set(x, y + 1, bz, st.end_rod("up"))
         else:
             s.set(x, y, bz, "minecraft:iron_bars")
     bz = 4
     py = surface_y(s, 17, bz, G)
     s.set(17, py, bz, DARK_WALL)                                             # one post still standing
-    s.set(17, py + 1, bz, YELLOW)
+    s.set(17, py + 1, bz, st.end_rod("up"))
     s.set(18, G + 1, bz, "minecraft:iron_bars")
     s.set(19, G + 1, bz, "minecraft:iron_bars")
+    s.set(20, G + 1, bz, DARK_WALL)                                          # second post, light knocked off
     for x in (20, 21, 22):                                                    # fallen section lying flat
         s.set(x, G + 1, bz + 1, st.trapdoor("iron", "north", "bottom"))
-    s.set(21, G + 1, bz + 2, st.trapdoor("iron", "west", "bottom"))
-    s.set(23, G + 1, bz + 1, DARK_WALL)                                       # knocked-over post + its cap
-    s.set(23, G + 1, bz + 2, BLACK)
-    s.set(20, G + 1, bz, DARK_WALL)
-    s.set(20, G + 2, bz, BLACK)
+    s.set(22, G + 1, bz + 2, DARK_WALL)                                       # toppled post with its light
+    s.set(23, G + 1, bz + 2, st.end_rod("east"))
     sh.scatter(s, 17, 1, 23, 8, [st.snow_layer(2), st.snow_layer(3), st.slab("cobbled_deepslate")], 4, seed=44, y_offset=1)
     # ---- texture + weathering
     sh.texturize(s, DARK, MIX_DARK, seed=31)

@@ -46,6 +46,7 @@ class Schematic:
         # 'ground' = y index of the ground plane. When pasted with WorldEdit the paste
         # point (player position) lands on (w//2, ground, l//2), so the build sits on the floor.
         self.ground = int(ground)
+        self.anchor = None  # optional (x, z) WorldEdit paste anchor; default = horizontal centre
         self.block_entities = []  # list of dicts (Pos, Id, extra)
         if fill != AIR:
             self.data[:] = self.pid(fill)
@@ -281,9 +282,9 @@ class Schematic:
             "Metadata": tag.Compound({
                 # //paste puts the clipboard origin at the player's feet (the air block above the surface):
                 # the schematic's ground layer (y = ground) must land one block below that.
-                "WEOffsetX": tag.Int(-(self.w // 2)),
+                "WEOffsetX": tag.Int(-(self.anchor[0] if self.anchor else self.w // 2)),
                 "WEOffsetY": tag.Int(-(self.ground + 1)),
-                "WEOffsetZ": tag.Int(-(self.l // 2)),
+                "WEOffsetZ": tag.Int(-(self.anchor[1] if self.anchor else self.l // 2)),
             }),
         })
         return nbtlib.File(root, gzipped=True, root_name="Schematic")
@@ -327,6 +328,9 @@ class Schematic:
         meta = root.get("Metadata")
         if meta is not None and "WEOffsetY" in meta:
             s.ground = -int(meta["WEOffsetY"]) - 1
+            ax, az = -int(meta.get("WEOffsetX", -(w // 2))), -int(meta.get("WEOffsetZ", -(l // 2)))
+            if (ax, az) != (w // 2, l // 2):
+                s.anchor = (ax, az)
         for be in root.get("BlockEntities", []):
             e = {"Pos": [int(v) for v in be["Pos"]], "Id": str(be["Id"])}
             for k, v in be.items():

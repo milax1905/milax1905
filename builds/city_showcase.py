@@ -1,22 +1,24 @@
 """city_showcase: the whole villain tech city assembled from the finished modules.
 
-Walled compound (7 wall segments per side, corner towers, twin-tower gate centred on the south side), the command
-spire on a raised 50x50 plaza, factory + hangar + landing pad (gunship parked, nose toward the gate) in the east
-district, three habitat towers in the west district, two watchtowers near the back corners.
-Added by the assembly: polished-basalt roads with magenta centre lines (gate -> plaza -> every building), a plaza
-ring road, sea-lantern street lights, purple banners along the main avenue, obsidian pylons on the plaza corners,
-a caged crystal-extraction pen and a supply depot in the north yard, prisoner cages by the gate, crate props with
-loot, sculk creeping around building bases, and snow drifts piling against the outside of the walls.
+Walled compound 156 x 149: the wall kit tiles in 8-block pier units (segment = 2 units, gate = 3 units), so the
+x-span between the corner seams is 15 units (120 blocks): 3 segments + the twin-tower gate + 3 segments on the
+south side, 7 segments + one clean half segment on the north side, 7 segments on the west / east sides. Every
+piece is butted pier against pier on the same outer face row (segment anchor z=0, corner / gate anchor z=2).
+Inside: the command spire on a raised 50x50 plaza, factory + hangar + landing pad (gunship parked on the H, nose
+toward the gate) in the east district, three habitat towers in the west district, two watchtowers near the back
+corners. Added by the assembly: polished-basalt roads with magenta centre lines (gate -> plaza -> every door),
+a plaza ring road, sea-lantern street lights, purple banners along the main avenue, obsidian pylons on the
+plaza corners, a caged crystal-extraction pen, a supply depot, a comms yard, a tank farm, a sculk garden and a
+motor pool, prisoner cages by the gate, crate props with loot, sculk creeping around building bases, and snow
+drifts piling against the outside of the walls.
 
-Modules are loaded from schematics/<name>.schem (tools.schem.Schematic.load drops BlockEntities, so signs/chests
-are re-read from the NBT here and carried over with rotation + offset).
+The interior is laid out on a 149-wide canvas centred at x=73.5 and pasted 4 blocks east into the compound
+(IX), so the plaza / avenue axis lands on the gate axis (x=77.5). Modules are loaded from schematics/<name>.schem;
+Schematic.load / rotated / paste carry the block entities (signs, loot chests), nothing is re-read here.
 """
-import math
 import random
 
-import nbtlib
 import numpy as np
-from nbtlib import tag
 
 from tools.schem import Schematic, AIR
 from tools import shapes as sh, states as st
@@ -24,9 +26,11 @@ from tools.palette import VILLAIN as V, MIX_DARK
 
 ROOT = "/home/user/milax1905/schematics/"
 
-W, H, L, G = 149, 93, 149, 1
-XW, XE, ZN, ZS = 4, 143, 4, 143            # outer faces of the wall lines
-CX, CZ = 73.5, 73.5                         # compound centre
+IW, IL = 149, 149                           # interior canvas (centre 73.5 / 73.5)
+IX = 4                                      # canvas -> compound x offset
+W, H, L, G = IW + 2 * IX - 1, 93, IL, 1     # compound 156 x 93 x 149, surface at y=1
+XW, XE, ZN, ZS = 4, 151, 4, 143            # outer face rows of the four wall lines
+SEG, UNIT = 16, 8                           # wall segment length, pier-to-pier tiling unit
 
 PBB = V["wall"]                             # polished blackstone bricks
 PB = "minecraft:polished_blackstone"
@@ -49,54 +53,34 @@ OPP = {"north": "south", "south": "north", "east": "west", "west": "east"}
 
 
 # ------------------------------------------------------------------------------------------ module loading
-def _py(v):
-    if isinstance(v, tag.Compound):
-        return {str(k): _py(x) for k, x in v.items()}
-    if isinstance(v, (tag.List, tag.IntArray, tag.ByteArray, tag.LongArray)):
-        return [_py(x) for x in v]
-    if isinstance(v, str):
-        return str(v)
-    if isinstance(v, float):
-        return float(v)
-    return int(v)
-
-
 _CACHE = {}
 
 
 def load_module(name):
-    """(Schematic, [block entity dicts]) - re-reads BlockEntities that Schematic.load ignores."""
-    if name in _CACHE:
-        return _CACHE[name]
-    path = ROOT + name + ".schem"
-    s = Schematic.load(path)
-    f = nbtlib.load(path, gzipped=True)
-    root = f["Schematic"] if "Schematic" in f else f
-    ents = [_py(e) for e in root.get("BlockEntities", [])]
-    _CACHE[name] = (s, ents)
+    """Cached Schematic.load (block entities included)."""
+    if name not in _CACHE:
+        _CACHE[name] = Schematic.load(ROOT + name + ".schem")
     return _CACHE[name]
 
 
-def _rot_pos(x, z, w, l, k):
-    for _ in range(k % 4):
-        x, z = l - 1 - z, x
-        w, l = l, w
-    return x, z
+def x_slice(mod, x0, x1):
+    """Copy of columns x0..x1 of a module (a clean half wall segment is local x 0..7 or 8..15: pier, gap, pier)."""
+    out = Schematic(x1 - x0 + 1, mod.h, mod.l, ground=mod.ground)
+    out.data = mod.data[x0:x1 + 1].copy()
+    out.palette, out.blocks_by_id = dict(mod.palette), list(mod.blocks_by_id)
+    out.block_entities = [dict(e, Pos=[e["Pos"][0] - x0, e["Pos"][1], e["Pos"][2]]) for e in mod.block_entities
+                          if x0 <= e["Pos"][0] <= x1]
+    return out
 
 
-def place(s, name, k, ox, oz, oy=None, clear=False):
-    """Paste module `name` rotated k*90 cw so that its ground plane lands on y=G. Returns (x0,z0,x1,z1) footprint."""
-    mod, ents = load_module(name)
+def place(s, name, k, ox, oz, oy=None, mod=None):
+    """Paste module `name` (or the given Schematic) rotated k*90 cw so that its ground plane lands on y=G.
+    Returns the (x0, z0, x1, z1) footprint."""
+    mod = mod if mod is not None else load_module(name)
     if oy is None:
         oy = G - mod.ground
     r = mod.rotated(k) if k % 4 else mod
-    if clear:
-        sh.box(s, ox, 0, oz, ox + r.w - 1, H - 1, oz + r.l - 1, AIR)
     s.paste(r, ox, oy, oz)
-    for e in ents:
-        x, y, z = e["Pos"]
-        rx, rz = _rot_pos(x, z, mod.w, mod.l, k)
-        s.block_entities.append(dict(e, Pos=[rx + ox, y + oy, rz + oz]))
     return ox, oz, ox + r.w - 1, oz + r.l - 1
 
 
@@ -431,7 +415,7 @@ def motor_pool(s, cx, cz):
 
 
 def snow_drifts(s, seed=5):
-    """Snow piling against the OUTSIDE faces of the walls (2-3 blocks out, wavy), nothing inside the compound."""
+    """Snow piling against the OUTSIDE faces of the walls (up to 4 blocks out, wavy), nothing inside the compound."""
     for x in range(W):
         for z in range(L):
             # distance to the nearest wall face, only outside the compound
@@ -443,7 +427,7 @@ def snow_drifts(s, seed=5):
             if d < 1:
                 continue
             n = sh.value_noise2(x, z, seed, 9.0) * 0.7 + 0.3 * sh.value_noise2(x + 50, z + 50, seed + 3, 3.5)
-            h = (3.1 - d) * (0.15 + 1.25 * n)         # in blocks: wavy, sometimes 2 blocks, sometimes nothing
+            h = (4.2 - d) * (1.3 * n - 0.1)           # in blocks: 0-3 against the wall, a soft toe 3-4 blocks out
             if h <= 0.12:
                 continue
             # only pile on snow ground that has air above (never on the wall / towers / road)
@@ -460,44 +444,35 @@ def snow_drifts(s, seed=5):
 
 
 # ------------------------------------------------------------------------------------------ the assembly
-def build():
-    s = Schematic(W, H, L, ground=G)
-    sh.box(s, 0, G, 0, W - 1, G, L - 1, SNOW)                     # flat snow ground the compound sits in
-
-    # ---- walls: 7 segments per side, corners, gate centred on the south side
-    for i in range(7):
-        o = 18 + 16 * i
-        place(s, "city_wall_segment", 0, o, ZN)                     # north (outer face z=4)
-        place(s, "city_wall_segment", 2, o, ZS - 4)                 # south (outer face z=143)
-        place(s, "city_wall_segment", 3, XW, o)                     # west
-        place(s, "city_wall_segment", 1, XE - 4, o)                 # east
-    place(s, "city_wall_corner", 0, 2, 2)                           # NW
-    place(s, "city_wall_corner", 1, 130, 2)                         # NE
-    place(s, "city_wall_corner", 2, 130, 130)                       # SE
-    place(s, "city_wall_corner", 3, 2, 130)                         # SW
-    place(s, "city_gate", 2, 62, 134, clear=True)                   # gate towers replace the seam piers (4 blocks each side)
+def build_interior():
+    """Everything inside the walls on a 149 x 149 canvas centred at (73.5, 73.5); pasted at x+IX into the compound."""
+    s = Schematic(IW, H, IL, ground=G)
+    sh.box(s, 0, G, 0, IW - 1, G, IL - 1, SNOW)                    # flat snow ground the compound sits in
 
     # ---- roads (flush with the ground) - laid before buildings so building bases win
     road(s, 71, 99, 76, 133, "z")                                   # main avenue: plaza -> gate
-    road(s, 71, 146, 76, 148, "z", kerb=False)                      # ...continues out of the gate
+    road(s, 71, 134, 76, 148, "z", kerb=False)                      # ...through the arch and out of the gate
     road(s, 71, 24, 76, 48, "z")                                    # north avenue
     road(s, 45, 45, 48, 102, "z"); road(s, 99, 45, 102, 102, "z")   # plaza ring road
     road(s, 45, 45, 102, 48, "x"); road(s, 45, 99, 102, 102, "x")
     road(s, 45, 20, 48, 44, "z"); road(s, 99, 20, 102, 44, "z")     # NW / NE streets up to the service road
     road(s, 20, 20, 127, 23, "x")                                   # north service road (watchtower to watchtower)
     road(s, 103, 31, 106, 34, "x", kerb=False)                      # factory dock spur
-    road(s, 103, 95, 126, 97, "x")                                  # hangar -> landing pad spur
+    road(s, 103, 78, 106, 81, "x", kerb=False)                      # hangar door spur (big west door)
+    road(s, 103, 95, 126, 97, "x")                                  # hangar -> landing pad north stairs
     road(s, 20, 48, 44, 51, "x")                                    # hab 1 street
     road(s, 38, 71, 44, 76, "x")                                    # west avenue (hab 2 door)
     road(s, 20, 122, 70, 125, "x")                                  # hab 3 street -> main avenue
+    road(s, 77, 122, 89, 125, "x")                                  # ...and east of the avenue round the motor pool
+    road(s, 86, 122, 89, 138, "z")                                  # SE block: down to the south street...
+    road(s, 86, 135, 127, 138, "x")                                 # ...along the wall to the pad's south stairs
     # junction patches (remove kerb lines where roads cross)
     for (x1, z1, x2, z2) in ((71, 45, 76, 48), (71, 99, 76, 102), (45, 71, 48, 76), (99, 71, 102, 76),
                              (45, 20, 48, 23), (99, 20, 102, 23), (71, 20, 76, 23), (45, 48, 48, 51),
-                             (99, 95, 102, 97), (71, 122, 76, 125), (99, 31, 102, 34), (71, 133, 76, 133),
-                             (45, 122, 48, 125) if False else (72, 133, 75, 133)):
+                             (99, 95, 102, 97), (71, 122, 76, 125), (99, 31, 102, 34), (99, 78, 102, 81),
+                             (45, 122, 48, 125), (86, 122, 89, 125), (86, 135, 89, 138)):
         sh.box(s, x1, G, z1, x2, G, z2, ROAD)
-    sh.box(s, 73, G, 20, 74, G, 133, MAG)                           # unbroken magenta axis gate -> plaza -> north
-    sh.box(s, 73, G, 146, 74, G, 148, MAG)
+    sh.box(s, 73, G, 20, 74, G, 148, MAG)                           # unbroken magenta axis gate -> plaza -> north
     sh.box(s, 46, G, 73, 102, G, 74, MAG)                           # unbroken east-west axis (under the plaza too)
 
     # ---- central raised plaza (2 high) with the spire on top
@@ -544,8 +519,10 @@ def build():
     # ---- east district: factory (dock west), hangar (door west onto the ring road), landing pad + gunship
     fx = place(s, "city_factory", 1, 107, 22)
     hx = place(s, "city_hangar", 0, 103, 65)
-    padf = place(s, "city_landing_pad", 2, 102, 97)
-    place(s, "villain_ship", 2, 102 + 7, 97 + 4, oy=3)             # gear on the pad floor (y=4), nose to the gate
+    padx, padz = 102, 97
+    padf = place(s, "city_landing_pad", 2, padx, padz)
+    # rotated pad: H centre at (padx + 17.5, padz + 19.5); rotated ship: hull / gear centre at (ox + 11.5, oz + 14.5)
+    place(s, "villain_ship", 2, padx + 6, padz + 5, oy=G + 3 - 1)  # gear on the pad floor (y=4), nose to the gate
     # ---- west district: three habitat towers
     h1 = place(s, "city_hab_block", 0, 14, 22)
     h2 = place(s, "city_hab_block", 3, 12, 65)
@@ -557,7 +534,7 @@ def build():
     # ---- sculk creeping out of the building bases
     for i, fp in enumerate((fx, hx, h1, h2, h3, t1, t2)):
         sculk_ring(s, fp[0], fp[1], fp[2], fp[3], seed=30 + i)
-    sculk_ring(s, px1 - 1, pz1 - 1, px2 + 1, pz2 + 1, seed=40, width=3, prob=0.35)
+    sculk_ring(s, px1 - 1, pz1 - 1, px2 + 1, pz2 + 1, seed=40, width=2, prob=0.2)
 
     # ---- street lights and banners
     for z in range(104, 133, 8):
@@ -576,6 +553,9 @@ def build():
         street_light(s, x, 52); street_light(s, x, 121)
     street_light(s, 112, 98); street_light(s, 124, 98)
     street_light(s, 40, 70); street_light(s, 40, 77)
+    for x in (96, 110):
+        street_light(s, x, 134)
+    street_light(s, 90, 128); street_light(s, 85, 128)
 
     # ---- north yard: crystal extraction pen (west) + supply depot (east)
     crystal_pen(s, 60, 13)
@@ -602,26 +582,98 @@ def build():
     s.set(69, G + 3, 101, PB)
     s.add_sign(69, G + 3, 102, SIGN + "[facing=south]", ["PLACE DU", "COMMANDANT", "silence", "obligatoire"])
 
-    # ---- the four empty lots around the plaza
+    # ---- the four lots around the plaza
     antenna_array(s, 60, 34)
     tank_farm(s, 88, 34)
     sculk_garden(s, 60, 112)
     motor_pool(s, 88, 112)
 
-    # ---- weathering: snow drifts outside the walls, a little snow inside the compound corners
-    snow_drifts(s)
+    # ---- finish: road texture, a very light dusting of snow on the four lots (the plaza deck stays crisp)
     sh.texturize(s, ROAD, MIX_ROAD, seed=9)
     snow_skip = ["glass", "froglight", "sea_lantern", "sculk", "ladder", "copper", "iron", "hopper", "observer", "furnace",
                  "barrel", "chest", "obsidian", "lamp", "amethyst", "magenta", "purple", "ice", "cauldron", "shulker",
                  "daylight", "campfire", "detector", "blackstone_bricks", "deepslate_bricks"]
-    for (x1, z1, x2, z2) in ((49, 49, 98, 98), (50, 26, 70, 44), (77, 26, 98, 44), (50, 104, 70, 121), (77, 104, 98, 121)):
-        sh.snow_cover(s, x1, z1, x2, z2, y_min=G + 2, prob=0.07, seed=12, layers=(1, 2), skip=snow_skip)   # light dusting
-    # drop block entities whose block was overwritten (cleared seam piers etc.)
-    keep = []
+    for (x1, z1, x2, z2) in ((50, 26, 70, 44), (77, 26, 98, 44), (50, 104, 70, 121), (77, 104, 98, 121)):
+        sh.snow_cover(s, x1, z1, x2, z2, y_min=G + 1, prob=0.04, seed=12, layers=(1, 2), skip=snow_skip)
+    return s
+
+
+def build_walls(s):
+    """Wall kit tiled pier against pier on the outer face rows XW / XE / ZN / ZS (see the module docstring)."""
+    seg = load_module("city_wall_segment")
+    half_a = x_slice(seg, 0, UNIT - 1)                              # local x 0..7: pier, gap, pier
+    x0, z0 = XW + 14, ZN + 14                                       # first seam east / south of the corners
+    span = XE - XW - 27                                             # 120: seam to seam
+    for i in range(span // SEG):                                    # north: 7 segments + one clean half segment
+        place(s, "city_wall_segment", 0, x0 + SEG * i, ZN)
+    place(s, None, 0, x0 + SEG * (span // SEG), ZN, mod=half_a)
+    gate_w = load_module("city_gate").w                             # 24: three units, centred on the south side
+    gx = x0 + (span - gate_w) // 2
+    for i in range((gx - x0) // SEG):
+        place(s, "city_wall_segment", 2, x0 + SEG * i, ZS - 4)
+        place(s, "city_wall_segment", 2, gx + gate_w + SEG * i, ZS - 4)
+    place(s, "city_gate", 2, gx, ZS - 9)                            # rotated: outer face on local z=9 -> ZS
+    for i in range((ZS - ZN - 27) // SEG):                          # west / east: 7 segments
+        place(s, "city_wall_segment", 3, XW, z0 + SEG * i)
+        place(s, "city_wall_segment", 1, XE - 4, z0 + SEG * i)
+    place(s, "city_wall_corner", 0, XW - 2, ZN - 2)                 # NW (anchor local 2,2 on the outer rows)
+    place(s, "city_wall_corner", 1, XE - 13, ZN - 2)                # NE
+    place(s, "city_wall_corner", 2, XE - 13, ZS - 13)               # SE
+    place(s, "city_wall_corner", 3, XW - 2, ZS - 13)                # SW
+
+
+def reattach_signs(s):
+    """Modules occasionally leave a wall sign one block off its post. Slide such a sign +-1 along its wall to a
+    free cell that has a solid block behind it; drop it (block + data) when nothing is there to hang it on."""
+    dirs = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+    for e in list(s.block_entities):
+        x, y, z = e["Pos"]
+        b = s.get(x, y, z)
+        if "wall_sign" not in b:
+            continue
+        facing = b.split("facing=")[1].split("]")[0].split(",")[0]
+        dx, dz = dirs[facing]
+        bx, bz = x - dx, z - dz
+        if s.inside(bx, y, bz) and not s.is_air(bx, y, bz):
+            continue
+        s.set(x, y, z, AIR)
+        s.block_entities.remove(e)
+        for sx, sz in ((dz, dx), (-dz, -dx)):                        # along the wall (perpendicular to facing)
+            nx, nz = x + sx, z + sz
+            if (s.inside(nx, y, nz) and s.is_air(nx, y, nz) and s.inside(nx - dx, y, nz - dz)
+                    and not s.is_air(nx - dx, y, nz - dz) and "sign" not in s.get(nx - dx, y, nz - dz)):
+                s.set(nx, y, nz, b)
+                s.block_entities.append(dict(e, Pos=[nx, y, nz]))
+                break
+
+
+def drop_isolated(s):
+    """Remove single blocks above the ground with no face neighbour at all (module leftovers)."""
+    nz = s.data != 0
+    pad = np.zeros((s.w + 2, s.h + 2, s.l + 2), dtype=bool)
+    pad[1:-1, 1:-1, 1:-1] = nz
+    neigh = (pad[:-2, 1:-1, 1:-1] | pad[2:, 1:-1, 1:-1] | pad[1:-1, :-2, 1:-1] | pad[1:-1, 2:, 1:-1]
+             | pad[1:-1, 1:-1, :-2] | pad[1:-1, 1:-1, 2:])
+    lone = nz & ~neigh
+    lone[:, :G + 1, :] = False
+    s.data[lone] = 0
+    s.block_entities = [e for e in s.block_entities if not lone[tuple(e["Pos"])]]
+
+
+def build():
+    s = Schematic(W, H, L, ground=G)
+    sh.box(s, 0, G, 0, W - 1, G, L - 1, SNOW)
+    s.paste(build_interior(), IX, 0, 0)
+    build_walls(s)
+    snow_drifts(s)
+    reattach_signs(s)
+    drop_isolated(s)
+    # drop block entities whose block was overwritten by a later paste / prop
+    keep, seen = [], set()
     for e in s.block_entities:
         x, y, z = e["Pos"]
         b = s.get(x, y, z) if s.inside(x, y, z) else AIR
-        if any(k in b for k in ("sign", "chest", "barrel")):
-            keep.append(e)
+        if any(k in b for k in ("sign", "chest", "barrel")) and (x, y, z) not in seen:
+            keep.append(e); seen.add((x, y, z))
     s.block_entities = keep
     return {"city_showcase": s.cropped(pad=1)}

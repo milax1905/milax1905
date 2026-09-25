@@ -50,8 +50,7 @@ def validate(s: Schematic, name: str = "") -> Dict[str, object]:
     fl = np.argwhere(floating)
     if len(fl):
         stats["floating_blocks"] = int(len(fl))
-        if len(fl) > 12:
-            warnings.append(f"{len(fl)} isolated floating blocks (no neighbour); e.g. {[tuple(int(v) for v in p) for p in fl[:5]]}")
+        warnings.append(f"{len(fl)} isolated floating block(s) (no neighbour): {[tuple(int(v) for v in p) for p in fl[:12]]}")
     if len(s.palette) - 1 < 4 and n > 200:
         warnings.append("very small palette (<4 block types): builds look flat; add trim/detail blocks")
     return {"ok": not errors, "errors": errors, "warnings": warnings, "stats": stats, "name": name}

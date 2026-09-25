@@ -98,11 +98,21 @@ def floor_light(s, x, z):
 
 
 # ------------------------------------------------------------------------------------------------ wing shell
-def wing(s, x1, z1, x2, z2, pil_every=4, pil_offset=1):
-    """Rectangular lab wing: buried deepslate band, floor, white walls with proud deepslate pilasters, blue
-    window strips, iron top trim, gray roof with a quartz slab parapet. Interior air y5..y8."""
+HAZARD = ("minecraft:yellow_terracotta", "minecraft:black_concrete")
+
+
+def wing(s, x1, z1, x2, z2, pil_every=4, pil_offset=1, kind="cryo"):
+    """Rectangular lab wing: buried deepslate band, proud deepslate plinth, floor, white walls with proud deepslate
+    pilasters, blue window strips, a floor-level light band (sea lantern in the wall behind proud light-blue glass),
+    a quartz cornice bevel under the roof edge, iron top trim, gray roof with a quartz slab parapet.
+    Interior air y5..y8. `kind` gives each wing its exterior signature:
+      cryo  - purpur pillar columns and a pearlescent froglight in every window bay (pink glow)
+      ctrl  - plain white (the 9-wide screen band on the east wall is added by screen_band())
+      cont  - yellow / black hazard stripe instead of the light band, iron bar grates over every window"""
     sh.box(s, x1, YB, z1, x2, YB, z2, BASE)
     sh.box(s, x1, YF, z1, x2, YF, z2, BASE)
+    sh.outline_top(s, x1 - 1, YB, z1 - 1, x2 + 1, z2 + 1, BASE)          # proud plinth (1 block outside the wall)
+    sh.outline_top(s, x1 - 1, YF, z1 - 1, x2 + 1, z2 + 1, BASE)
     sh.box(s, x1 + 1, YF, z1 + 1, x2 - 1, YF, z2 - 1, FLOOR)
     sh.box(s, x1, Y1, z1, x2, YC, z2, WALL)
     sh.box(s, x1 + 1, Y1, z1 + 1, x2 - 1, Y2, z2 - 1, "air")
@@ -119,6 +129,8 @@ def wing(s, x1, z1, x2, z2, pil_every=4, pil_offset=1):
             face = FACE_OF[(ox, oz)]
             if p in pil:
                 sh.box(s, x + ox, YB, z + oz, x + ox, YC, z + oz, BASE)
+                if kind == "cryo":
+                    sh.box(s, x + ox, 6, z + oz, x + ox, Y2, z + oz, PURPUR_P)
                 s.set(x + ox, YR, z + oz, st.slab("polished_deepslate"))
                 s.set(x, YC, z, BASE)
                 if pil.index(p) % 2 == 1:
@@ -127,8 +139,19 @@ def wing(s, x1, z1, x2, z2, pil_every=4, pil_offset=1):
                 dist = min(abs(p - q) for q in pil)
                 s.set(x, 6, z, GLASS_T)
                 s.set(x, 7, z, GLASS_T)
+                s.set(x + ox, YC, z + oz, st.stairs("quartz", OPP[face], "top"))   # cornice bevel under the roof edge
+                if kind == "cont":
+                    s.set(x + ox, Y1, z + oz, HAZARD[(p - lo) % 2])
+                    s.set(x + ox, 6, z + oz, BARS)
+                    s.set(x + ox, 7, z + oz, BARS)
+                elif dist == 1:
+                    s.set(x, Y1, z, LANT)                                   # floor-level light band
+                    s.set(x + ox, Y1, z + oz, GLASS_T)
                 if dist == 2:
-                    vent(s, x + ox, Y1, z + oz, face)
+                    if kind != "cont":
+                        vent(s, x + ox, Y1, z + oz, face)
+                    if kind == "cryo":
+                        s.set(x, 7, z, FROG)
                     s.set(x, Y2, z, "minecraft:quartz_bricks")
     side(z1, x1 + 1, x2 - 1, "x", -1)
     side(z2, x1 + 1, x2 - 1, "x", 1)
@@ -144,7 +167,7 @@ def wing(s, x1, z1, x2, z2, pil_every=4, pil_offset=1):
             s.set(x, YC, z, LANT)
 
 
-def roof_details(s, x1, z1, x2, z2, seed=1, solar=False):
+def roof_details(s, x1, z1, x2, z2, seed=1, solar=False, rod=True, far="west"):
     """Structured flat roof (y9 top, y10 details): two raised strips over the lantern rows, framed skylight with
     capped lanterns, AC unit with a duct run to the parapet, a straight vent row, edge lights, lightning rod."""
     cx, cz = (x1 + x2) // 2, (z1 + z2) // 2
@@ -173,15 +196,25 @@ def roof_details(s, x1, z1, x2, z2, seed=1, solar=False):
         if s.is_air(x, YR, z2 - 2) and s.get(x, YC, z2 - 2) == ROOF:
             s.set(x, YR, z2 - 2, st.trapdoor("iron", "south", "bottom", open=False))
     # low light strip along the far (short) edge of the wing: lanterns set into the parapet every 4
-    xe = x1 if x1 < 30 else x2
+    xe = x1 if far == "west" else x2
     for z in range(z1 + 2, z2 - 1, 4):
         s.set(xe, YR, z, LANT)
-    s.set(x2 - 2, YR, z2 - 3, IRON)
-    s.set(x2 - 2, YR + 1, z2 - 3, st.lightning_rod("up"))
+    if rod:
+        s.set(x2 - 2, YR, z2 - 3, IRON)
+        s.set(x2 - 2, YR + 1, z2 - 3, st.lightning_rod("up"))
+    # wind-blown snow on the roof: a thin contiguous lick along the inner south and east parapet (leeward side)
+    for x in range(x1 + 1, x2):
+        n = sh.value_noise2(x, z2, seed + 5, 4.0)
+        if n > 0.3 and s.is_air(x, YR, z2 - 1) and s.get(x, YC, z2 - 1) == ROOF:
+            s.set(x, YR, z2 - 1, st.snow_layer(1 + int(n * 2.5)))
+    for z in range(z1 + 1, z2):
+        n = sh.value_noise2(x2, z, seed + 5, 4.0)
+        if n > 0.3 and s.is_air(x2 - 1, YR, z) and s.get(x2 - 1, YC, z) == ROOF:
+            s.set(x2 - 1, YR, z, st.snow_layer(1 + int(n * 2.5)))
     if solar:
         # exterior ladder up the east wall, roof hatch, and a dish on a pole
         zl = z1 + 4
-        for y in range(Y1, YR + 1):
+        for y in range(Y1, YC + 1):
             s.set(x2 + 1, y, zl, "minecraft:ladder[facing=east]")
         s.set(x2, YR, zl, st.trapdoor("iron", "east", "bottom", open=True))
         s.set(x2 - 1, YR, zl, st.trapdoor("iron", "west", "bottom", open=False))
@@ -217,26 +250,36 @@ def corridor(s, x1, z1, x2, z2, axis):
         sh.box(s, x1, Y1, z1, x2, 8, z1, GLASS)
         sh.box(s, x1, Y1, z2, x2, 8, z2, GLASS)
         sh.box(s, x1, 8, z1 + 1, x2, 8, z2 - 1, GLASS)
+        sh.box(s, x1, 9, z1 + 1, x2, 9, z2 - 1, "air")        # no wing cornice left over the corridor roof
         ribs = list(range(x1, x2 + 1, 2))
+        zm = (z1 + z2) // 2
         for x in ribs:
             sh.box(s, x, Y1, z1, x, 8, z1, IRON)
             sh.box(s, x, Y1, z2, x, 8, z2, IRON)
             sh.box(s, x, 8, z1, x, 8, z2, IRON)
             s.set(x, 9, z1, st.slab("polished_deepslate")); s.set(x, 9, z2, st.slab("polished_deepslate"))
         for x in range(x1 + 1, x2, 2):
-            s.set(x, YF, (z1 + z2) // 2, LANT)
+            s.set(x, YF, zm, LANT)
+            s.set(x, 7, zm, st.end_rod("down"))                      # ceiling lamp hanging from the glass roof
+        for x in (x1 + 1, x2 - 1):
+            s.set(x, 9, zm, st.trapdoor("iron", "north", "bottom", open=False))   # roof vents
     else:
+        sh.box(s, x1 + 1, 9, z1, x2 - 1, 9, z2, "air")
         sh.box(s, x1 + 1, YF, z1, x2 - 1, YF, z2, FLOOR)
         sh.box(s, x1, Y1, z1, x1, 8, z2, GLASS)
         sh.box(s, x2, Y1, z1, x2, 8, z2, GLASS)
         sh.box(s, x1 + 1, 8, z1, x2 - 1, 8, z2, GLASS)
+        xm = (x1 + x2) // 2
         for z in range(z1, z2 + 1, 2):
             sh.box(s, x1, Y1, z, x1, 8, z, IRON)
             sh.box(s, x2, Y1, z, x2, 8, z, IRON)
             sh.box(s, x1, 8, z, x2, 8, z, IRON)
             s.set(x1, 9, z, st.slab("polished_deepslate")); s.set(x2, 9, z, st.slab("polished_deepslate"))
         for z in range(z1 + 1, z2, 2):
-            s.set((x1 + x2) // 2, YF, z, LANT)
+            s.set(xm, YF, z, LANT)
+            s.set(xm, 7, z, st.end_rod("down"))
+        for z in (z1 + 1, z2 - 1):
+            s.set(xm, 9, z, st.trapdoor("iron", "north", "bottom", open=False))
 
 
 # ------------------------------------------------------------------------------------------------ rotunda
@@ -441,9 +484,15 @@ def control_wing(s, x1, z1, x2, z2):
             s.set(x - 1, Y1, z, st.stairs("polished_deepslate", "east"))
             s.set(x + 1, Y1, z, BASE)
             s.set(x + 1, Y1 + 1, z, st.facing_block("minecraft:observer", "west"))
-    screen(s, x2 - 1, Y1 + 1, zc - 4, 9, 3, "west")
-    s.set(x2 - 2, Y1 + 3, zc - 5, st.end_rod("up"))
-    s.set(x2 - 2, Y1 + 3, zc + 5, st.end_rod("up"))
+    # 9-wide screen band through the east wall: light-blue glass inside AND outside, sea lanterns in between, iron
+    # frame columns - the CONTROL wing's exterior signature (a glowing blue band on the east face)
+    for z in range(zc - 4, zc + 5):
+        for y in (6, 7, 8):
+            s.set(x2 - 2, y, z, GLASS_T)
+            s.set(x2 - 1, y, z, LANT)
+            s.set(x2, y, z, GLASS_T)
+    for z in (zc - 5, zc + 5):
+        sh.box(s, x2 - 2, Y1, z, x2 + 1, Y2, z, IRON)
     sh.box(s, x2 - 2, Y1, zc - 4, x2 - 2, Y1, zc + 4, BASE)
     for x in range(x1 + 2, x2 - 3):
         blk = "minecraft:bookshelf" if x % 3 else "minecraft:chiseled_bookshelf[facing=south]"
@@ -514,54 +563,118 @@ def containment_wing(s, x1, z1, x2, z2):
 def ruin(s, x1, z1, x2, z2, zc0, seed=7):
     """Collapse the far (south) end of a wing: caved roof, rubble, frost creep, snow drifts, icicles."""
     rng = random.Random(seed)
+    xc = (x1 + x2) // 2
+    # --- roof crater: a big ragged ellipse over the south half (it eats the south half of the skylight frame) plus
+    # a smaller secondary hole to the north-west of it
     hole = np.zeros((s.w, s.l), dtype=bool)
+    hx, hz, rx, rz = xc + 1, z2 - 4, 6.5, 5.0
     for x in range(x1 + 1, x2):
-        for z in range(zc0, z2 + 1):
-            t = (z - zc0) / max(1, z2 - zc0)
-            n = sh.value_noise2(x, z, seed, 5.0)
-            if 0.25 + 0.75 * t * n + 0.35 * t > 0.62:
+        for z in range(zc0 - 4, z2 + 1):
+            n = sh.value_noise2(x, z, seed, 4.0)
+            if math.hypot((x - hx) / rx, (z - hz) / rz) < 0.72 + 0.6 * n:
+                hole[x, z] = True
+            if math.hypot((x - (xc - 5)) / 2.6, (z - (zc0 - 2)) / 2.0) < 0.6 + 0.5 * n:
                 hole[x, z] = True
     for x in range(s.w):
         for z in range(s.l):
             if hole[x, z]:
-                for y in (YC, YR):
+                for y in range(YC, YR + 4):
                     s.set(x, y, z, "air")
-    # the south-east corner of the wing is blown out; the rest of the far wall keeps most of its lower half
+    # --- fallen roof plating: a bent plate of stairs hanging from the crater's north edge down onto a rubble heap
+    # (in the aisle, east half, leaving the west half of the aisle walkable)
+    for px in (xc + 1, xc + 2):
+        zs = [z for z in range(zc0 - 4, z2) if hole[px, z]]
+        if not zs:
+            continue
+        zn = zs[0] - 1
+        if zn <= zc0 - 5 or not s.is_air(px, Y2, zn) or s.is_air(px, YC, zn):
+            continue
+        s.set(px, Y2, zn, st.stairs("polished_andesite", "north"))
+        s.set(px, Y2 - 1, zn + 1, st.stairs("polished_andesite", "north"))
+        s.set(px, Y1 + 1, zn + 2, st.stairs("polished_andesite", "north"))
+        s.set(px, Y1, zn + 3, st.slab("smooth_stone"))
+        s.set(px, Y1, zn + 1, "minecraft:cobbled_deepslate")
+        s.set(px, Y1 + 1, zn + 1, "minecraft:cobbled_deepslate")
+        s.set(px, Y1, zn + 2, "minecraft:cobbled_deepslate")
+    # --- south-east corner blown out: the corner column goes completely, the far wall east of the aisle and the
+    # east wall's last blocks keep only ragged stubs; a clean 4-wide breach in the south wall lets the snow in
     for x in range(x1 - 1, x2 + 2):
-        for z in range(z2 - 7, z2 + 2):
-            for y in range(Y1, YR + 1):
+        for z in range(z2 - 9, z2 + 2):
+            for y in range(Y1, YR + 2):
+                if s.is_air(x, y, z):
+                    continue
                 b = s.get(x, y, z)
-                if b in (WALL, WALL_IN, IRON, "minecraft:quartz_bricks") or "slab" in b or "glass" in b or "trapdoor" in b:
-                    corner = max(0.0, 1.0 - (math.hypot(x - (x2 + 1), z - (z2 + 1)) / 8.0))
-                    p = 0.05 + 0.08 * (y - Y1) + 0.9 * corner
-                    if z >= z2 - 1 and y >= Y2:
-                        p += 0.35
-                    if rng.random() < p * (0.5 + sh.value_noise2(x, z + y, seed + 1, 3.0)):
-                        s.set(x, y, z, "air")
+                if not (b in (WALL, WALL_IN, IRON, BASE, ROOF, GLASS_T, GLASS, LANT, "minecraft:quartz_bricks", FROG)
+                        or any(k in b for k in ("slab", "glass", "trapdoor", "stairs", "end_rod", "terracotta",
+                                                "black_concrete", "iron_bars", "purpur", "ladder"))):
+                    continue
+                corner = max(0.0, 1.0 - math.hypot((x - (x2 + 1)) / 9.0, (z - (z2 + 1)) / 7.0))
+                p = corner * 1.6 - 0.2 + 0.12 * (y - Y1)
+                n = sh.value_noise2(x + 7 * y, z, seed + 1, 3.0)
+                if p * (0.5 + n) > 0.5:
+                    s.set(x, y, z, "air")
+    sh.box(s, xc + 1, Y1, z2, xc + 4, Y2, z2 + 1, "air")                      # the breach
+    s.set(xc + 4, Y2, z2, WALL); s.set(xc + 1, Y2 - 1, z2, "air")
+    # hanging bits: iron bars under the remaining wall tops, pane fragments in the broken window rows
+    for x in range(x1, x2 + 2):
+        for z in (z2, z2 + 1):
+            for y in (Y1, Y1 + 1, Y1 + 2):
+                if s.is_air(x, y, z) and not s.is_air(x, y + 1, z) and rng.random() < 0.5:
+                    s.set(x, y, z, BARS if rng.random() < 0.6 else st.glass_pane("light_blue"))
+    for z in range(z2 - 9, z2 + 1):
+        for y in (Y1, Y1 + 1, Y1 + 2):
+            if s.is_air(x2, y, z) and not s.is_air(x2, y + 1, z) and rng.random() < 0.5:
+                s.set(x2, y, z, BARS if rng.random() < 0.6 else st.glass_pane("light_blue"))
     # ceiling lanterns whose roof cap was blown away: frozen over (no bare glowing dots on the ruined roof)
     for x in range(x1, x2 + 1):
-        for z in range(zc0 - 2, z2 + 1):
+        for z in range(zc0 - 6, z2 + 1):
             if s.get(x, YC, z) == LANT and s.is_air(x, YR, z):
                 s.set(x, YC, z, ICE)
     rub = ["minecraft:cobbled_deepslate", WALL, "minecraft:quartz_bricks", st.slab("smooth_quartz"),
            st.stairs("quartz", "north"), st.stairs("quartz", "east", "top"), st.slab("polished_deepslate"),
-           BASE, "minecraft:calcite"]
-    cells = [(x, z) for x in range(x1 + 1, x2) for z in range(zc0, z2) if hole[x, z] and s.is_air(x, Y1, z)]
+           BASE, "minecraft:calcite", st.slab("polished_andesite"), st.stairs("polished_andesite", "west", "top")]
+    cells = [(x, z) for x in range(x1 + 1, x2) for z in range(zc0 - 4, z2) if hole[x, z] and s.is_air(x, Y1, z)]
     rng.shuffle(cells)
     for (x, z) in cells[: len(cells) // 3]:
         s.set(x, Y1, z, rng.choice(rub))
         if rng.random() < 0.25:
             s.set(x, Y1 + 1, z, rng.choice(rub[:3]))
-    # frost creep: floor first, then the lower walls, with a gradient toward the far end
+    # a dense rubble heap in the blown-out corner (inside) and debris thrown outside the breach onto the snow
+    for x in range(x2 - 4, x2 + 1):
+        for z in range(z2 - 4, z2 + 1):
+            if s.is_air(x, Y1, z) and not s.is_air(x, YF, z) and rng.random() < 0.55:
+                s.set(x, Y1, z, rng.choice(rub[:3] + [BASE]))
+                if rng.random() < 0.35 and s.is_air(x, Y1 + 1, z):
+                    s.set(x, Y1 + 1, z, rng.choice(rub[3:7]))
+    for _ in range(26):
+        x, z = xc + rng.randint(0, 9), z2 + rng.randint(2, 6)
+        if s.inside(x, YF, z) and s.is_air(x, YF, z) and s.is_air(x, Y1, z):
+            b = rng.choice(rub)
+            s.set(x, YF, z, b)
+            if "slab" not in b and "stairs" not in b and rng.random() < 0.3:
+                s.set(x, Y1, z, rng.choice(rub[3:7]))
+    # frost creep: floor first, then the lower walls, with a gradient toward the far end; the EXTERIOR faces of
+    # the south wall and the east wall's end get frozen 2-3 blocks up so the damage reads from outside
+    frost_ok = (WALL, WALL_IN, FLOOR, BASE, "minecraft:cobbled_deepslate", IRON, ROOF, GLASS_T,
+                "minecraft:quartz_bricks") + HAZARD
     for x in range(x1 - 1, x2 + 2):
-        for z in range(zc0 - 4, z2 + 2):
-            t = (z - (zc0 - 4)) / max(1, z2 - zc0 + 4)
+        for z in range(zc0 - 6, z2 + 2):
+            t = (z - (zc0 - 6)) / max(1, z2 - zc0 + 6)
+            exterior = z >= z2 or (x >= x2 and z >= z2 - 9)      # south face + east face near the blown corner
+            west_face = x <= x1
             for y in range(YB, YR + 1):
                 b = s.get(x, y, z)
-                if b in (WALL, WALL_IN, FLOOR, BASE, "minecraft:cobbled_deepslate", IRON, ROOF):
+                if b in frost_ok:
                     n = sh.value_noise2(x + y * 3, z, seed + 2, 4.0)
-                    k = 1.0 if y <= YF else (0.55 if y == Y1 else 0.25 if y <= Y1 + 1 else 0.08)
-                    if rng.random() < (t * 1.2 - 0.15) * (0.4 + n) * k:
+                    if exterior:
+                        k = {YB: 1.0, YF: 1.0, Y1: 0.8, Y1 + 1: 0.5, Y1 + 2: 0.28, Y2: 0.1}.get(y, 0.04)
+                        p = (0.35 + 0.65 * t) * (0.5 + n) * k
+                    else:
+                        k = 1.0 if y <= YF else (0.55 if y == Y1 else 0.25 if y <= Y1 + 1 else 0.08)
+                        p = (t * 1.2 - 0.15) * (0.4 + n) * k
+                        if west_face:
+                            p *= 0.35 if y <= YF else 0.15
+                    if rng.random() < p:
                         s.set(x, y, z, BICE if rng.random() < 0.25 else ICE)
     # snow drifts inside under the hole and against the far wall
     for x in range(x1 + 1, x2):
@@ -611,40 +724,65 @@ def snow_drifts(s, seed=4):
     deep wedge-shaped drifts (full block + layers against the wall, stepping down over 5 blocks with a ragged noisy
     edge) while the north / west faces only get a thin lick of 1-2 layers."""
     solid = s.data != 0
-    wall = solid[:, Y1, :] & solid[:, YF, :]
+    wall = solid[:, Y1, :] & (solid[:, YF, :] | solid[:, YB, :])
+    snow = np.zeros((s.w, s.l), dtype=bool)
+    N4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    info = {}
     for x in range(s.w):
         for z in range(s.l):
             if solid[x, YF, z] or solid[x, Y1, z]:
                 continue
             best, lee = 9, False
-            for dx in range(-4, 5):
-                for dz in range(-4, 5):
+            for dx in range(-3, 4):
+                for dz in range(-3, 4):
                     xx, zz = x + dx, z + dz
                     if s.inside(xx, Y1, zz) and wall[xx, zz]:
                         d = max(abs(dx), abs(dz))
-                        if d < best:
-                            best, lee = d, (dx <= 0 and dz <= 0)      # wall lies to the NW of this cell: leeward
-                        elif d == best and (dx <= 0 and dz <= 0):
-                            lee = True
-            if best > 4:
-                continue
-            n = sh.value_noise2(x, z, seed, 5.0)
-            if lee:
-                h = (4.6 - best) * (0.5 + 1.0 * n)           # wedge: ~6 at the wall, 0-2 four blocks out
-                if best >= 2 and n < 0.34 + 0.16 * (best - 2):   # ragged, thinning outer edge
+                        l = dx <= 0 and dz <= 0                     # wall lies to the NW of this cell: leeward
+                        if d < best or (d == best and l):
+                            best, lee = d, l
+            if best <= 3:
+                info[(x, z)] = (best, lee)
+    # grow the drift outward from the walls, one distance ring at a time: a cell only gets snow when a 4-neighbour
+    # is the wall itself (ring 1) or already carries snow from a nearer ring -> every drift is one attached wedge
+    for d in (1, 2, 3):
+        for _ in range(2):
+            for (x, z), (dd, lee) in info.items():
+                if dd != d or snow[x, z]:
                     continue
-            else:
-                h = (1.8 - best) * (0.5 + 0.8 * n)
-                if best >= 1 and n < 0.55:
+                n = sh.value_noise2(x, z, seed, 5.0)
+                if lee:
+                    if d == 1:
+                        n1 = sh.value_noise2(x + 50, z + 50, seed + 1, 3.0)
+                        layers = 4 + int(n * 3 + n1 * 3)            # 4..9 (9 = snow block + 1 layer)
+                    elif d == 2:
+                        if n < 0.15:
+                            continue
+                        layers = 3 + int(n * 3)
+                    else:
+                        if n < 0.45:
+                            continue
+                        layers = 1 + int(n * 2)
+                else:
+                    if d > 1 or n < 0.5:
+                        continue
+                    layers = 1 + int(n * 2)
+                attached = False
+                for dx, dz in N4:
+                    xx, zz = x + dx, z + dz
+                    if not s.inside(xx, Y1, zz):
+                        continue
+                    if (d == 1 and wall[xx, zz]) or (snow[xx, zz] and info[(xx, zz)][0] < d):
+                        attached = True
+                        break
+                if not attached:
                     continue
-            if h <= 0.5:
-                continue
-            layers = int(min(16, h * 2.4))
-            if layers >= 9 and best <= 1:
-                s.set(x, YF, z, SNOW)
-                s.set(x, Y1, z, st.snow_layer(max(1, min(8, layers - 8))))
-            else:
-                s.set(x, YF, z, st.snow_layer(max(1, min(8, layers))))
+                snow[x, z] = True
+                if layers >= 9:
+                    s.set(x, YF, z, SNOW)
+                    s.set(x, Y1, z, st.snow_layer(max(1, min(8, layers - 8))))
+                else:
+                    s.set(x, YF, z, st.snow_layer(max(1, min(8, layers))))
 
 
 def specimen_trail(s, x2, z2, seed=5):
@@ -733,7 +871,7 @@ def porch(s, cx, z_wall, z_out):
     for x in range(x1, x2 + 1):
         for z in range(z_out - 9, z_out - 4):
             if s.is_air(x, YB, z):
-                s.set(x, YB, z, "minecraft:white_concrete_powder")
+                s.set(x, YB, z, FLOOR)
     sign(s, cx + 1, Y1 + 1, zd - 1, "north", ["LABORATOIRE", "HELIX", "site 3 - nord", ""])
     sign(s, cx - 1, Y1 + 1, zd - 1, "north", ["ACCES", "RESTREINT", "badge requis", ""])
     for x in (x1 - 2, x2 + 2):
@@ -791,16 +929,26 @@ def antenna_mast(s, x, z, h=14):
     for (px, py_, pz, f) in ((x - 1, YF + h + 1, z, "west"), (x + 2, YF + h + 1, z + 1, "east"),
                              (x, YF + h + 1, z - 1, "north"), (x + 1, YF + h + 1, z + 2, "south")):
         s.set(px, py_, pz, st.end_rod(f))
-    # guy wires: chains from the mast at y+10 to 4 anchor posts on the diagonals
+    # cables: a 4-way crossarm at y+10 (iron root + thin deepslate-wall arms) and one straight VERTICAL chain drop
+    # from every arm tip to a buried anchor post (no diagonal dotted lines - cables are straight or vertical)
     ya = YF + 10
-    for (sx, sz, ax, az) in ((x - 1, z - 1, x - 6, z - 6), (x + 2, z - 1, x + 7, z - 6),
-                             (x - 1, z + 2, x - 6, z + 7), (x + 2, z + 2, x + 7, z + 7)):
-        if not s.inside(ax, YB, az):
-            continue
+    arms = (((x - 1, z), (x - 2, z), (x - 3, z), (x - 4, z)),
+            ((x + 2, z + 1), (x + 3, z + 1), (x + 4, z + 1), (x + 5, z + 1)),
+            ((x, z - 1), (x, z - 2), (x, z - 3), (x, z - 4)),
+            ((x + 1, z + 2), (x + 1, z + 3), (x + 1, z + 4), (x + 1, z + 5)))
+    for arm in arms:
+        for i, (ax, az) in enumerate(arm):
+            s.set(ax, ya, az, IRON if i == 0 else "minecraft:polished_deepslate_wall")
+        ax, az = arm[-1]
+        s.set(ax, ya + 1, az, st.end_rod("up"))
         s.set(ax, YB, az, BASE)
         s.set(ax, YF, az, BASE)
         s.set(ax, Y1, az, "minecraft:polished_deepslate_wall")
-        chain_line(s, (sx, ya, sz), (ax, Y1 + 1, az))
+        s.set(ax, Y1 + 1, az, IRON)
+        for y in range(Y1 + 2, ya):
+            s.set(ax, y, az, st.chain("y"))
+    for y in (Y1, Y1 + 1):
+        s.set(x - 1, y, z + 1, "minecraft:ladder[facing=west]")
     # dish: iron arm to the east, hub + light gray slab petals + iron trapdoor corners, end rod feed
     yd_ = YF + 7
     hx, hz = x + 3, z
@@ -815,7 +963,7 @@ def antenna_mast(s, x, z, h=14):
     # equipment box + barrel at the foot
     s.set(x - 1, Y1, z + 2, st.facing_block("minecraft:observer", "south"))
     s.set(x + 2, Y1, z - 1, "minecraft:barrel[facing=up,open=false]")
-    sign(s, x + 2, Y1 + 1, z + 3, "south", ["RELAIS RADIO", "portee 40 km", "pas de reponse", ""])
+    sign(s, x + 2, Y1 + 1, z + 1, "east", ["RELAIS RADIO", "portee 40 km", "pas de reponse", ""])   # on the iron core
 
 
 def generator(s, x, z, pipe_to):
@@ -857,39 +1005,39 @@ def generator(s, x, z, pipe_to):
 
 # ------------------------------------------------------------------------------------------------ main
 def build():
-    W, H, L = 74, 24, 62
+    W, H, L = 84, 24, 66
     s = Schematic(W, H, L, ground=G)
-    cx, cz = 37, 29                  # rotunda centre
+    cx, cz = 44, 29                  # rotunda centre
     R = 10
-    # wings x1,z1,x2,z2 - kept 4 blocks away from the rotunda wall (x=27 / x=47, z=39) for the glass corridors
-    cryo = (4, 21, 22, 37)            # west
-    ctrl = (52, 21, 70, 37)           # east
-    cont = (28, 43, 46, 59)           # south
-    wing(s, *cryo, pil_offset=1)
-    wing(s, *ctrl, pil_offset=1)
-    wing(s, *cont, pil_offset=2)
-    roof_details(s, *cryo, seed=1)
-    roof_details(s, *ctrl, seed=2, solar=True)
-    roof_details(s, *cont, seed=3)
+    # wings x1,z1,x2,z2 - kept 8 blocks away from the rotunda wall (x=34 / x=54, z=39): real glass corridors
+    cryo = (8, 21, 26, 37)            # west (the cryo tanks stand at x=0..7)
+    ctrl = (62, 21, 80, 37)           # east
+    cont = (35, 46, 53, 62)           # south
+    wing(s, *cryo, pil_offset=1, kind="cryo")
+    wing(s, *ctrl, pil_offset=1, kind="ctrl")
+    wing(s, *cont, pil_offset=2, kind="cont")
+    roof_details(s, *cryo, seed=1, far="west")
+    roof_details(s, *ctrl, seed=2, solar=True, far="east")
+    roof_details(s, *cont, seed=3, rod=False, far="west")
     rotunda(s, cx, cz, R)
-    opening(s, 22, Y1, cz - 1, 28, 7, cz + 1)
-    corridor(s, 23, cz - 2, 27, cz + 2, "x")
-    opening(s, 46, Y1, cz - 1, 52, 7, cz + 1)
-    corridor(s, 47, cz - 2, 51, cz + 2, "x")
-    opening(s, cx - 1, Y1, 37, cx + 1, 7, 43)
-    corridor(s, cx - 2, 38, cx + 2, 42, "z")
+    opening(s, cryo[2], Y1, cz - 1, cx - 9, 7, cz + 1)
+    corridor(s, cryo[2] + 1, cz - 2, cx - 10, cz + 2, "x")
+    opening(s, cx + 9, Y1, cz - 1, ctrl[0], 7, cz + 1)
+    corridor(s, cx + 10, cz - 2, ctrl[0] - 1, cz + 2, "x")
+    opening(s, cx - 1, Y1, cz + 8, cx + 1, 7, cont[1])
+    corridor(s, cx - 2, cz + 9, cx + 2, cont[1] - 1, "z")
     opening(s, cx - 1, Y1, 12, cx + 1, 7, 20)
     porch(s, cx, 19, 11)
     cryo_wing(s, *cryo)
     cryo_tanks(s, cryo[0], (cryo[1] + cryo[3]) // 2)
     control_wing(s, *ctrl)
     containment_wing(s, *cont)
-    antenna_mast(s, 16, 9)
-    generator(s, 63, 11, pipe_to=(63, 21))
-    sign(s, 48, Y1 + 1, 38, "north", ["ZONE 3", "CONTAMINEE", "acces interdit", "->"])
-    sh.box(s, 48, YB, 38, 48, Y1, 38, BASE)
-    hole = ruin(s, cont[0], cont[1], cont[2], cont[3], zc0=51, seed=7)
-    cleanup_isolated(s, cont[0] - 2, 49, cont[2] + 2, cont[3] + 2, Y1)
+    antenna_mast(s, 23, 9)
+    generator(s, 73, 11, pipe_to=(73, 21))
+    sign(s, cx + 11, Y1 + 1, cz + 9, "north", ["ZONE 3", "CONTAMINEE", "acces interdit", "->"])
+    sh.box(s, cx + 11, YB, cz + 9, cx + 11, Y1, cz + 9, BASE)
+    hole = ruin(s, cont[0], cont[1], cont[2], cont[3], zc0=cont[1] + 8, seed=7)
+    cleanup_isolated(s, cont[0] - 2, cont[1] + 6, cont[2] + 2, cont[3] + 2, Y1)
     # textures + weathering
     sh.texturize(s, WALL, MIX_WALL, seed=5)
     sh.texturize(s, FLOOR, MIX_FLOOR, seed=6)
@@ -898,17 +1046,7 @@ def build():
     sh.texturize(s, ICE, MIX_ICE, seed=9)
     snow_drifts(s, seed=4)
     specimen_trail(s, cont[2], cont[3], seed=5)
-    sh.snow_cover(s, y_min=YF, prob=0.15, seed=3, layers=(1, 2),
-                  skip=["glass", "iron", "purpur", "lamp", "lantern", "copper", "amethyst", "detector", "observer",
-                        "froglight", "basalt", "diorite", "andesite", "concrete", "quartz", "calcite", "slime", "honey",
-                        "smooth_stone", "terracotta"])
-    # keep the dome lattice crisp: no snow layers on the ribs / rings (wind-swept glass)
-    for x in range(s.w):
-        for z in range(s.l):
-            if math.hypot(x - cx, z - cz) <= R + 1:
-                for y in range(13, s.h):
-                    if "snow" in s.get(x, y, z):
-                        s.set(x, y, z, "air")
+    # (no random snow_cover pass: ground snow is only the attached drifts, roof snow only the leeward parapet lick)
     self_check(s)
     return {"lab_main": s.cropped(pad=1)}
 

@@ -32,8 +32,17 @@ lit le format Sponge) ou via conversion dans le Schematic Manager.
 
 La ville est fournie en **modules** (`city_wall_segment`, `city_wall_corner`, `city_gate`, `city_watchtower`,
 `city_spire`, `city_factory`, `city_hab_block`, `city_hangar`, `city_landing_pad`, `villain_ship`) **et** en
-version assemblée (`city_showcase`). Les segments de mur font exactement 16 de long : ils se juxtaposent
-bout à bout, les coins font 16×16.
+version assemblée (`city_showcase`, 156×149, ~119 000 blocs).
+
+Pour monter une muraille soi-même, les trois pièces de mur ont un point de collage spécial : le joueur se place
+**sur la ligne de la face extérieure** (côté ennemi), à l'**extrémité ouest** de la pièce, pieds sur la neige.
+* `city_wall_segment` : s'étend sur 16 blocs vers l'est ; le mur est sur la rangée du joueur et 4 blocs vers le sud.
+* `city_gate` : 24 blocs vers l'est ; les tours dépassent de 2 blocs vers le nord.
+* `city_wall_corner` : le joueur est au croisement des deux faces extérieures (nord et ouest) ; les joints sont
+  14 blocs à l'est et 14 blocs au sud. `//rotate 90/180/270` pour les autres angles.
+
+Un mur nord droit = se placer sur la ligne extérieure, coller, avancer de 16 (segment) ou 24 (porte) vers l'est,
+coller, etc. Les autres modules (tours, bâtiments, flèche, aire) se collent normalement par leur centre.
 
 ## Régénérer / modifier
 

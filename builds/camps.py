@@ -1,11 +1,14 @@
 """Exploration camps: a 2-tent bivouac (camp_small) and the main expedition base (camp_base).
 White fabric tents (white wool textured with close shades, quartz-stair slopes, a thin cherry hem, cyan seam ribs
 flush with the slope), short stripped-spruce ridge logs, fence poles, warm lanterns + campfires against the cold.
-ground=1 (surface at y=1). Nothing goes below the surface: the only blocks AT the surface are deliberate ones
-(trodden-snow paths, tent floors, fire-pit stones, and a snow block under each prop so nothing floats) so that
-`//paste -a` inherits the world's own snow hills everywhere else."""
+ground=1 (surface at y=1). Nothing goes below the surface: the surface layer is one contiguous snow pad under the camp
+(plus trodden-snow paths, tent floors and fire-pit stones) so nothing floats and `//paste -a` simply re-snows the
+surface where the camp stands, inheriting the world's own hills all around."""
 import math
 import random
+from collections import deque
+
+import numpy as np
 
 from tools.schem import Schematic, AIR
 from tools import shapes as sh, states as st
@@ -20,9 +23,14 @@ LOG = "minecraft:stripped_spruce_log"
 PLANK = CAMP["plank"]
 CHERRY = CAMP["plank_light"]       # cherry_planks (world signature pink wood)
 TRODDEN = CAMP["trodden_snow"]     # white_concrete_powder
+TRODDEN_LG = "minecraft:light_gray_concrete_powder"
 SNOW = GROUND["snow"]
 BARREL = "minecraft:barrel[facing=up,open=false]"
-PATH_MIX = [(TRODDEN, 6), (SNOW, 1), ("minecraft:calcite", 2), ("minecraft:light_gray_concrete_powder", 1)]
+DARK = "minecraft:polished_deepslate"          # the dark "structure" layer that outlines props on white snow
+DARK_SLAB = "minecraft:polished_deepslate_slab[type=bottom]"
+DARK_FENCE = "minecraft:dark_oak_fence"
+DARK_LOG = "minecraft:dark_oak_log"
+PATH_MIX = [(TRODDEN, 8), (TRODDEN_LG, 2)]     # two close shades only: a groove, not speckle
 WOOL_MIX = [(WOOL, 7), ("minecraft:white_concrete", 2), ("minecraft:quartz_block", 1)]
 OPP = {"north": "south", "south": "north", "east": "west", "west": "east"}
 DXZ = {"east": (1, 0), "west": (-1, 0), "south": (0, 1), "north": (0, -1)}
@@ -50,13 +58,11 @@ def ground_under(s, x, g, z):
 
 
 def snow_layer_if_air(s, x, y, z, n):
-    """Snow layers on the ground (y == g+1): creates the snow block under it if needed."""
+    """Snow layers on the ground (y == g+1). The surface block under it is filled later by ground_pad()."""
     if s.inside(x, y, z) and s.is_air(x, y, z):
-        if s.is_air(x, y - 1, z):
-            s.set(x, y - 1, z, SNOW)
         b = s.get(x, y - 1, z)
-        if "snow_block" in b or "concrete_powder" in b or "calcite" in b:
-            s.set(x, y, z, st.snow_layer(n))
+        if b == AIR or "snow_block" in b or "concrete_powder" in b:
+            s.set(x, y, z, st.snow_layer(max(1, min(7, n))))
 
 
 def snow_on_top(s, x, y, z, n):
@@ -65,13 +71,56 @@ def snow_on_top(s, x, y, z, n):
         s.set(x, y + 1, z, st.snow_layer(n))
 
 
-def settle(s, g):
-    """Put a snow block at the surface under every block standing on the surface (no floating props), and
-    nothing anywhere else at y <= g (the world's own snow shows through with //paste -a)."""
+def ground_pad(s, g, seed=7):
+    """One contiguous snow surface (y == g, the world's own surface level) under everything and 1-3 blocks
+    around it with a noisy edge, so no prop floats and no lone snow cube lies on the ground. Nothing goes below
+    g: with `//paste -a` this simply re-snows the surface where the camp stands."""
+    occ = np.zeros((s.w, s.l), dtype=bool)
     for x in range(s.w):
         for z in range(s.l):
-            if s.is_air(x, g, z) and not s.is_air(x, g + 1, z):
-                s.set(x, g, z, SNOW)
+            occ[x, z] = bool((s.data[x, g:, z] != 0).any())
+    dist = np.full((s.w, s.l), 99, dtype=int)
+    q = deque()
+    for x, z in zip(*np.nonzero(occ)):
+        dist[x, z] = 0
+        q.append((x, z))
+    while q:
+        x, z = q.popleft()
+        if dist[x, z] >= 3:
+            continue
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, nz = x + dx, z + dz
+            if 0 <= nx < s.w and 0 <= nz < s.l and dist[nx, nz] > dist[x, z] + 1:
+                dist[nx, nz] = dist[x, z] + 1
+                q.append((nx, nz))
+    for x in range(s.w):
+        for z in range(s.l):
+            d = dist[x, z]
+            n = sh.value_noise2(x, z, seed, 4.0)
+            if d <= 1 or (d == 2 and n > 0.3) or (d == 3 and n > 0.6):
+                if s.is_air(x, g, z):
+                    s.set(x, g, z, SNOW)
+    for _ in range(2):                                      # close 1-cell holes / notches in the pad
+        for x in range(s.w):
+            for z in range(s.l):
+                if s.is_air(x, g, z):
+                    n = sum(1 for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                            if s.inside(x + dx, g, z + dz) and not s.is_air(x + dx, g, z + dz))
+                    if n >= 3:
+                        s.set(x, g, z, SNOW)
+
+
+def path_edges(s, g, seed=8, prob=0.7):
+    """Low snow layers (1-2) along both sides of every trodden strip so it reads as a groove in the snow."""
+    rng = random.Random(seed)
+    trod = {(x, z) for x in range(s.w) for z in range(s.l) if s.get(x, g, z) == TRODDEN}
+    for x, z in trod:
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, nz = x + dx, z + dz
+            if (nx, nz) in trod or not s.inside(nx, g + 1, nz):
+                continue
+            if s.get(nx, g, nz) in (AIR, SNOW) and s.is_air(nx, g + 1, nz) and rng.random() < prob:
+                s.set(nx, g + 1, nz, st.snow_layer(rng.randint(1, 2)))
 
 
 def hanging_sign(s, x, y, z, rotation, lines):
@@ -117,6 +166,8 @@ def tent(s, u1, u2, c, g, hw, along="x", front="+", wall=0, body=WOOL, end=WOOL_
                 s.set(x, g + top, z, st.log(LOG, along))
             elif abs(v) == hw:
                 s.set(x, g + top, z, st.slab(hem, "bottom"))                      # thin sewn hem
+            elif u in (u1, u2):                                                    # bevelled gable (pink trim)
+                s.set(x, g + top, z, st.stairs(hem, dir_along(along, 1 if u == u1 else -1)))
             else:
                 s.set(x, g + top, z, st.stairs(accent_stair if rib else stair, facing_in(v)))
     # ---- interior + floor
@@ -133,10 +184,13 @@ def tent(s, u1, u2, c, g, hw, along="x", front="+", wall=0, body=WOOL, end=WOOL_
         for dy in range(1, h(v) - 1):
             s.set(x, g + dy, z, AIR)
         s.set(x, g, z, floor if v == 0 else TRODDEN)
-    for v in (-1, 1):
+    for v in (-1, 1):                                                              # 2-high open door flaps
         x, z = P(u_f + d, v)
-        for dy in range(1, h(1) - 1):
+        for dy in (1, 2):
             s.set(x, g + dy, z, st.trapdoor(flap, facing_in(-v), "bottom", open=True))
+    x, z = P(u_f - d, -1)                                                          # lantern just inside the door
+    if s.is_air(x, g + 1, z):
+        s.set(x, g + 1, z, st.lantern(hanging=False))
     # ---- awning: one more row of stairs, ridge log +1 then a fence tip on a fence pole
     for v in range(-(hw - 1), hw):
         if v == 0:
@@ -196,23 +250,24 @@ def tent(s, u1, u2, c, g, hw, along="x", front="+", wall=0, body=WOOL, end=WOOL_
         x, z = P(u, 0)
         if rng.random() < 0.45:
             s.set(x, ridge_y + 1, z, st.snow_layer(rng.randint(1, 2)))
+    # drifts = snow layers only, tallest against the skirt and falling off with distance (leeward bias)
     for u in range(u1 - 1, u2 + 2):
         for sgn in (1, -1):
             if sgn == lee:
-                specs = ((hw + 1, (2, 5), 0.85), (hw + 2, (1, 3), 0.6), (hw + 3, (1, 1), 0.25))
+                specs = ((hw + 1, (4, 6), 0.95), (hw + 2, (2, 3), 0.8), (hw + 3, (1, 1), 0.45))
             else:
-                specs = ((hw + 1, (1, 2), 0.4),)
+                specs = ((hw + 1, (1, 2), 0.7), (hw + 2, (1, 1), 0.2))
             for vv, n, p in specs:
                 x, z = P(u, sgn * vv)
                 if rng.random() < p:
                     snow_layer_if_air(s, x, g + 1, z, rng.randint(*n))
-    for vv in range(-hw, hw + 1):
+    for vv in range(-hw - 1, hw + 2):
         x, z = P(u_b - d, vv)
-        if rng.random() < 0.75:
-            snow_layer_if_air(s, x, g + 1, z, rng.randint(2, 4))
+        if rng.random() < 0.9:
+            snow_layer_if_air(s, x, g + 1, z, rng.randint(3, 5))
         x, z = P(u_b - 2 * d, vv)
-        if rng.random() < 0.4:
-            snow_layer_if_air(s, x, g + 1, z, 1)
+        if rng.random() < 0.6:
+            snow_layer_if_air(s, x, g + 1, z, rng.randint(1, 2))
     return P, u_f, u_b, d, ridge_y
 
 
@@ -244,8 +299,7 @@ def lookout_post(s, x, z, g):
         s.set(x, y, z, FENCE)
     s.set(x, g + 5, z, st.lantern(hanging=False))
     s.set(x + 1, g + 4, z, st.end_rod("east"))
-    s.set(x, g + 1, z + 1, SNOW)                                        # packed-snow step to stand on
-    s.set(x, g + 2, z + 1, st.snow_layer(2))
+    s.set(x, g + 1, z + 1, st.snow_layer(3))                            # trampled step at the foot
 
 
 def lookout_deck(s, lx, lz, g):
@@ -281,46 +335,51 @@ def flag_pole(s, x, z, g, height, rotation=0, base=True):
             s.set(x + dx, g + 1, z + dz, "minecraft:polished_deepslate_slab[type=bottom]")
 
 
-def guy_line(s, x0, y0, z0, dx, dz, g):
-    """Face-connected chain guy line from a crossbar block at (x0,y0,z0): each step = a horizontal chain touching
-    the previous vertical one, then a vertical chain under it, down to a fence peg at g+1."""
-    n = y0 - (g + 2)
+def guy_line(s, x0, y0, z0, dx, dz, g, arm=2):
+    """Guy line from the crossbar block at (x0,y0,z0): an end-rod arm `arm` long, one horizontal chain at its
+    tip, then a single straight vertical chain column down to a fence peg at g+1 (everything face-connected)."""
     ax = "x" if dx else "z"
-    for i in range(1, n + 1):
-        x, z = x0 + dx * i, z0 + dz * i
-        s.set(x, y0 + 1 - i, z, st.chain(ax))
-        s.set(x, y0 - i, z, st.chain("y"))
-    s.set(x0 + dx * n, g + 1, z0 + dz * n, FENCE)
+    f = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}[(dx, dz)]
+    for i in range(1, arm + 1):
+        s.set(x0 + dx * i, y0, z0 + dz * i, st.end_rod(f))
+    x, z = x0 + dx * (arm + 1), z0 + dz * (arm + 1)
+    s.set(x, y0, z, st.chain(ax))
+    for y in range(g + 2, y0):
+        s.set(x, y, z, st.chain("y"))
+    s.set(x, g + 1, z, FENCE)
 
 
-def path(s, pts, g, width=1.0, seed=5):
-    """Trodden-snow path through a polyline (a deliberate surface block)."""
-    rng = random.Random(seed)
+def path(s, pts, g, width=2, seed=5):
+    """Continuous trodden-snow strip (width 1 or 2, no random speckle) through a polyline, at the surface."""
     cells = set()
+    offs = ((0, 0), (1, 0), (0, 1), (1, 1)) if width >= 2 else ((0, 0),)
     for (x1, z1), (x2, z2) in zip(pts, pts[1:]):
         n = max(abs(x2 - x1), abs(z2 - z1), 1)
         for i in range(n + 1):
             t = i / n
-            px, pz = x1 + (x2 - x1) * t, z1 + (z2 - z1) * t
-            for dx in (-1, 0, 1):
-                for dz in (-1, 0, 1):
-                    if math.hypot(dx, dz) <= width + 0.01 or rng.random() < 0.25:
-                        cells.add((round(px + dx), round(pz + dz)))
+            px, pz = round(x1 + (x2 - x1) * t), round(z1 + (z2 - z1) * t)
+            for dx, dz in offs:
+                cells.add((px + dx, pz + dz))
     for x, z in cells:
         if s.inside(x, g, z) and s.get(x, g, z) in (AIR, SNOW):
             s.set(x, g, z, TRODDEN)
+    return cells
 
 
 def footprints(s, pts, g, seed=6):
+    """A 1-wide trail that wanders one block left/right (random walk, no gaps)."""
     rng = random.Random(seed)
+    off = 0
     for (x1, z1), (x2, z2) in zip(pts, pts[1:]):
         n = max(abs(x2 - x1), abs(z2 - z1), 1)
+        along_z = abs(x2 - x1) < abs(z2 - z1)
         for i in range(n + 1):
             t = i / n
             x, z = round(x1 + (x2 - x1) * t), round(z1 + (z2 - z1) * t)
-            x += rng.choice((-1, 0, 0, 1)) if abs(x2 - x1) < abs(z2 - z1) else 0
-            z += rng.choice((-1, 0, 0, 1)) if abs(x2 - x1) >= abs(z2 - z1) else 0
-            if s.inside(x, g, z) and s.get(x, g, z) in (AIR, SNOW) and rng.random() < 0.8:
+            if rng.random() < 0.3:
+                off = max(-1, min(1, off + rng.choice((-1, 1))))
+            x, z = (x + off, z) if along_z else (x, z + off)
+            if s.inside(x, g, z) and s.get(x, g, z) in (AIR, SNOW):
                 s.set(x, g, z, TRODDEN)
 
 
@@ -359,10 +418,10 @@ def sled(s, x, z, g, facing="west", cargo=True):
         nose, tail, nose_face = xs[-1], xs[0], "west"
     for xx in xs:
         for zz in (z, z + 1):
-            s.set(xx, g + 1, zz, st.slab("spruce", "top"))
+            s.set(xx, g + 1, zz, st.slab("dark_oak", "top"))            # dark runners: the sled reads on snow
     for zz in (z, z + 1):
-        s.set(nose, g + 1, zz, st.stairs("spruce", nose_face, "top"))
-        s.set(tail, g + 2, zz, FENCE)
+        s.set(nose, g + 1, zz, st.stairs("dark_oak", nose_face, "top"))
+        s.set(tail, g + 2, zz, DARK_FENCE)
     if cargo:
         mid = xs[1] if facing == "west" else xs[2]
         s.set(mid, g + 2, z, BARREL)
@@ -382,7 +441,7 @@ def snowmobile(s, x, z, g, facing="west"):
         s.set(hood, g + 1, zz, "minecraft:white_concrete")
         s.set(hood, g + 2, zz, st.trapdoor("iron", facing, "bottom", open=True))       # windshield
         for sx in (seat_a, seat_b):
-            s.set(sx, g + 1, zz, "minecraft:white_concrete")
+            s.set(sx, g + 1, zz, DARK)                                          # dark track unit under the seat
             s.set(sx, g + 2, zz, "minecraft:black_carpet")
         s.set(rack, g + 1, zz, st.trapdoor("iron", facing, "top", open=False))
     s.set(hood, g + 2, z, "minecraft:polished_blackstone_button[face=floor,facing=" + facing + "]")
@@ -390,36 +449,34 @@ def snowmobile(s, x, z, g, facing="west"):
     s.set(rack, g + 2, z, st.slab("spruce", "bottom"))                                      # strapped crate lid
 
 
-def string_lights(s, poles, g, top=6, seed=3):
-    """Poles (fence, `top`-1 high) linked by sagging chains: outer 2 blocks at `top`, the middle at top-1, with
-    lantern drops (vertical chain + hanging lantern) every 3rd block. Every chain is face-connected."""
+def string_lights(s, poles, g, top=5, seed=3):
+    """Poles (fence, `top`-1 high) linked by low sagging chains: the 2 blocks by each pole at `top`, the middle
+    span one lower, lanterns hung straight under the chain every 4th block (still 2 clear blocks to walk)."""
     for (x, z) in poles:
         for y in range(g + 1, g + top):
             s.set(x, y, z, FENCE)
     for (x1, z1), (x2, z2) in zip(poles, poles[1:]):
         ax = "x" if z1 == z2 else "z"
         n = max(abs(x2 - x1), abs(z2 - z1))
-        for i in range(n + 1):
+        for i in range(1, n):
             x = x1 + (x2 - x1) * i // n
             z = z1 + (z2 - z1) * i // n
-            if i == 0 or i == n:
-                continue
             outer = i <= 2 or i >= n - 2
-            y = g + top if outer else g + top - 1
             if i in (2, n - 2):                                  # sag transition: vertical link + lower chain
                 s.set(x, g + top, z, st.chain("y"))
                 s.set(x, g + top - 1, z, st.chain(ax))
             else:
-                s.set(x, y, z, st.chain(ax))
-            if not outer and (i - 2) % 3 == 1:
-                s.set(x, g + top - 2, z, st.chain("y"))
-                s.set(x, g + top - 3, z, st.lantern(hanging=True))
+                s.set(x, g + top if outer else g + top - 1, z, st.chain(ax))
+            if not outer and (i - 2) % 4 == 2:
+                s.set(x, g + top - 2, z, st.lantern(hanging=True))
 
 
 def shed_cherry(s, x, y, z, w, l, hgt):
     """Small cherry-plank shed (walls + flat plank roof with slab eaves + snow)."""
     sh.box(s, x, y, z, x + w - 1, y + hgt - 1, z + l - 1, CHERRY)
     sh.box(s, x + 1, y, z + 1, x + w - 2, y + hgt - 1, z + l - 2, AIR)
+    for cx, cz in ((x, z), (x + w - 1, z), (x, z + l - 1), (x + w - 1, z + l - 1)):   # dark corner trim
+        sh.box(s, cx, y, cz, cx, y + hgt - 1, cz, st.log(DARK_LOG, "y"))
     for dx in range(-1, w + 1):
         for dz in range(-1, l + 1):
             edge = dx in (-1, w) or dz in (-1, l)
@@ -468,11 +525,17 @@ def build_small():
     lx, lz = 17, 3
     lookout_post(s, lx, lz, G)
     flag_pole(s, 12, 5, G, 7, rotation=4, base=False)   # 7 high: keeps the schematic >= 9 tall (renderer limit)
-    # snow-block wind break north of the fire (2 high arc), with snow on top
-    for dx in range(-3, 4):
-        zz = fire[1] - 4 + (abs(dx) // 3)
-        s.set(fire[0] + dx, G + 1, zz, SNOW)
-        s.set(fire[0] + dx, G + 2, zz, st.snow_layer(7 - 2 * abs(dx) // 2) if abs(dx) < 3 else st.snow_layer(2))
+    # wind break north of the fire: a light-gray tarp stretched between two fence posts, snow caught on top
+    wz = fire[1] - 4
+    for dx in (-3, 3):
+        for y in range(G + 1, G + 4):
+            s.set(fire[0] + dx, y, wz, FENCE)
+    for dx in range(-2, 3):
+        s.set(fire[0] + dx, G + 1, wz, WOOL_LG)
+        s.set(fire[0] + dx, G + 2, wz, WOOL_LG)
+        s.set(fire[0] + dx, G + 3, wz, st.snow_layer(1 + (dx + 2) % 3))
+    for dx in range(-2, 3):                                                       # drift on the windward face
+        snow_layer_if_air(s, fire[0] + dx, G + 1, wz - 1, 2 + (dx * 7) % 3)
     # a few dropped things around the camp
     s.set(15, G + 1, 12, st.log(LOG, "x"))                                        # firewood
     s.set(15, G + 1, 13, st.log(LOG, "x"))
@@ -486,15 +549,17 @@ def build_small():
     # trodden snow: doors -> fire, fire -> lookout, fire -> crates
     xa, za = PA(ufA + 2 * dA, 0)
     xb, zb = PB(ufB + 2 * dB, 0)
-    path(s, [(xa, za), fire, (xb, zb)], G, width=1.0, seed=31)
+    path(s, [(xa, za - 1), (fire[0] - 1, fire[1] - 1), (xb - 1, zb)], G, width=2, seed=31)
     footprints(s, [fire, (lx, lz + 2)], G, seed=32)
     footprints(s, [fire, (6, 13)], G, seed=33)
     footprints(s, [(xa + 1, za), (xa + 1, za + 6)], G, seed=34)
+    path_edges(s, G, seed=38)
     sh.texturize(s, TRODDEN, PATH_MIX, seed=35)
     sh.texturize(s, WOOL, WOOL_MIX, seed=37)
-    settle(s, G)
+    ground_pad(s, G, seed=39)
     sh.snow_cover(s, y_min=G + 1, prob=0.35, seed=36,
-                  skip=["wool", "concrete", "bed", "carpet", "cake", "planks", "stripped", "hay"])
+                  skip=["wool", "concrete", "bed", "carpet", "cake", "planks", "stripped", "hay", "snow_block",
+                        "deepslate"])
     return s.cropped(pad=1)
 
 
@@ -592,7 +657,7 @@ def build_base():
     s.add_sign(38, G + 1, 42, "minecraft:spruce_sign[rotation=8]", ["VIGIE", "tour de garde", "2h chacun", "lumieres au N?"])
     flag_pole(s, 27, 21, G, 11, rotation=0)
     s.set(27, G + 12, 21, st.lightning_rod("up"))
-    string_lights(s, [(16, 17), (30, 17), (30, 31), (16, 31), (16, 24)], G, top=6)
+    string_lights(s, [(16, 17), (30, 17), (30, 31), (16, 31), (16, 24)], G, top=5)
 
     # ---- radio mast (37,31): stone base, iron-bars mast, dipoles, lightning rod, 3 face-connected guy lines
     mx, mz = 37, 31
@@ -617,8 +682,8 @@ def build_base():
     s.set(mx - 1, G + 1, mz - 1, st.lantern(soul=True, hanging=False))
     s.add_sign(mx, G + 1, mz + 1, "minecraft:spruce_wall_sign[facing=south]", ["RADIO", "frequence 121.5", "appel 20h", "pas de reponse"])
 
-    # ---- generator + ground cable to the mast (chains lying on the snow, face-connected)
-    gx, gz = 31, 33
+    # ---- generator + ground cable to the mast: one straight horizontal chain run at g+1 (single axis)
+    gx, gz = 31, 32
     s.set(gx, G + 1, gz, "minecraft:blast_furnace[facing=west,lit=true]")
     s.set(gx + 1, G + 1, gz, "minecraft:iron_block")
     s.set(gx, G + 1, gz + 1, "minecraft:iron_block")
@@ -628,11 +693,9 @@ def build_base():
     s.set(gx + 1, G + 3, gz, st.chain("y"))
     s.set(gx + 1, G + 4, gz, st.lantern(soul=True, hanging=False))
     s.set(gx, G + 2, gz + 1, "minecraft:lever[face=floor,facing=north,powered=true]")
-    s.set(gx - 1, G + 1, gz, "minecraft:redstone_lamp[lit=true]")
+    s.set(gx - 1, G + 1, gz + 1, "minecraft:redstone_lamp[lit=true]")
     for x in range(gx + 2, mx - 1):
-        s.set(x, G + 1, gz, st.chain("x"))
-    s.set(mx - 1, G + 1, gz, st.chain("z"))
-    s.set(mx - 1, G + 1, gz - 1, st.chain("z"))
+        s.set(x, G + 1, gz, st.chain("x"))                                # ends on the mast's stone base slab
 
     # ---- weather station (NW, near the lab): mast + 2x2 louvred Stevenson screen + gauges
     wx, wz = 4, 13
@@ -655,7 +718,7 @@ def build_base():
     crate_stack(s, tx, tz, G, 4, 3, hgt=2, seed=61, snow=False)
     for (dx, dz) in ((-1, -1), (4, -1), (-1, 3), (4, 3)):
         for y in range(G + 1, G + 4):
-            s.set(tx + dx, y, tz + dz, FENCE)
+            s.set(tx + dx, y, tz + dz, DARK_FENCE)                          # dark corner posts outline the tarp
     rng = random.Random(62)
     for dx in range(-1, 5):
         for dz in range(-1, 4):
@@ -751,22 +814,25 @@ def build_base():
     # ---- paths (trodden snow) linking everything
     xm, zm = PM(ufM + 2 * dM, 0)
     xs_, zs_ = PS(ufS + 2 * dS, 0)
-    path(s, [(ex, 43), (ex, 37), (25, 31), fire], G, width=1.0, seed=81)
-    path(s, [fire, (21, 19), (xm, zm)], G, width=1.0, seed=82)
-    path(s, [fire, (16, 24), (xs_, zs_)], G, width=1.0, seed=83)
-    path(s, [fire, (31, 18), (32, 10)], G, width=0.5, seed=84)
-    path(s, [fire, (31, 22), (32, 20)], G, width=0.5, seed=85)
-    path(s, [fire, (18, 30), (14, 32)], G, width=0.5, seed=86)
-    footprints(s, [(32, 20), (34, 28), (mx, mz + 2)], G, seed=87)
+    path(s, [(ex - 1, 43), (ex - 1, 36), (fire[0] - 1, fire[1] + 4)], G, width=2, seed=81)       # gate -> plaza
+    path(s, [(fire[0] - 1, fire[1] - 4), (fire[0] - 1, 20), (xm - 1, zm - 1)], G, width=2, seed=82)  # plaza -> mess
+    path(s, [(fire[0] - 4, fire[1] - 1), (16, 23), (xs_, zs_ - 1)], G, width=2, seed=83)          # plaza -> lab
+    path(s, [(fire[0] + 4, fire[1] - 1), (31, 20), (32, 20)], G, width=2, seed=84)               # plaza -> tents
+    path(s, [(32, 19), (32, 10)], G, width=2, seed=85)
+    path(s, [(32, 15), (33, 15)], G, width=2, seed=86)
+    footprints(s, [(fire[0] - 3, fire[1] + 2), (18, 30), (14, 32)], G, seed=95)
+    footprints(s, [(33, 22), (34, 28), (mx, mz + 2)], G, seed=87)
     footprints(s, [(xs_, zs_ - 6), (wx + 2, wz + 4)], G, seed=88)
     footprints(s, [(fire[0] - 2, fire[1] + 6), (fx + 7, fz + 1)], G, seed=89)
     footprints(s, [(32, 10), (lx + 1, lz + 6)], G, seed=90)
     footprints(s, [(ex + 3, 40), (px1 - 1, pz1 + 2)], G, seed=91)
+    path_edges(s, G, seed=96)
     sh.texturize(s, TRODDEN, PATH_MIX, seed=92)
     sh.texturize(s, WOOL, WOOL_MIX, seed=94)
-    settle(s, G)
+    ground_pad(s, G, seed=97)
     sh.snow_cover(s, y_min=G + 1, prob=0.3, seed=93,
-                  skip=["wool", "concrete", "bed", "carpet", "cake", "planks", "shulker", "orange", "stripped", "hay"])
+                  skip=["wool", "concrete", "bed", "carpet", "cake", "planks", "shulker", "orange", "stripped", "hay",
+                        "snow_block", "deepslate"])
     return s.cropped(pad=1)
 
 

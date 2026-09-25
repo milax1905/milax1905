@@ -92,6 +92,54 @@ def bed(s, x, y, z, facing, color="purple"):
     s.set(x + dx, y, z + dz, st.bed(color, facing, "head"))
 
 
+def podium_bevel(s, y, material=ST_T):
+    """Replace every exposed perimeter cell of the `BASE` podium at height y by an outward-facing stair
+    (tall side toward the podium), so the plinth settles into the snow instead of showing a vertical rim."""
+    dirs = {"west": (-1, 0), "east": (1, 0), "north": (0, -1), "south": (0, 1)}
+    todo = []
+    for x in range(s.w):
+        for z in range(s.l):
+            if s.get(x, y, z) != BASE or not s.is_air(x, y + 1, z):
+                continue
+            if y > 0 and s.is_air(x, y - 1, z):
+                continue
+            open_dirs = [d for d, (dx, dz) in dirs.items()
+                         if not s.inside(x + dx, y, z + dz) or s.is_air(x + dx, y, z + dz)]
+            if open_dirs:
+                todo.append((x, z, OPP[open_dirs[0]]))
+    for x, z, facing in todo:
+        s.set(x, y, z, st.stairs(material, facing))
+
+
+def podium_snow(s, y, seed, prob=0.55):
+    """Snow drifts biting into the podium top near its edges (layers on cells within 2 of the rim)."""
+    import random
+    rng = random.Random(seed)
+    for x in range(s.w):
+        for z in range(s.l):
+            if s.get(x, y, z) != BASE or not s.is_air(x, y + 1, z):
+                continue
+            d = 3
+            for dx in range(-2, 3):
+                for dz in range(-2, 3):
+                    xx, zz = x + dx, z + dz
+                    if not s.inside(xx, y, zz) or s.is_air(xx, y, zz) or "stairs" in s.get(xx, y, zz):
+                        d = min(d, abs(dx) + abs(dz))
+            if d <= 2 and rng.random() < prob * (0.5 + value_noise(x, z, seed)) / d:
+                s.set(x, y + 1, z, st.snow_layer(2 if d == 1 and rng.random() < 0.4 else 1))
+
+
+def value_noise(x, z, seed):
+    return sh.value_noise2(x, z, seed, 5.0)
+
+
+def post(s, x, y, z, h=3):
+    """Froglight lamp post: railing-wall shaft of h blocks, froglight head, iron cap."""
+    sh.box(s, x, y, z, x, y + h - 1, z, RAIL)
+    s.set(x, y + h, z, FROG)
+    s.set(x, y + h + 1, z, st.trapdoor("iron", "north", "bottom", open=False))
+
+
 def finish(s, seed):
     sh.texturize(s, BODY, MIX_BLACK, seed=seed)
     sh.snow_cover(s, y_min=G + 4, prob=0.045, seed=seed, layers=(1, 1),
@@ -132,19 +180,27 @@ def build_factory():
     # interior void + floor
     sh.box(s, HX0 + 2, FLOOR + 1, HZ0 + 2, HX1 - 2, WALLTOP, HZ1 - 2, "air")
     sh.box(s, HX0 + 2, FLOOR, HZ0 + 2, HX1 - 2, FLOOR, HZ1 - 2, BASE)
-    # neon line at y12 on every recessed panel (glass / lantern alternating), windows y8..9, vents, rivets
+    # clerestory band y12..13 on every recessed panel: purple glass with sea lanterns set behind it (inside the
+    # hall, so no bare lantern face shows outside), windows y8..9, vents, rivets
+    def clerestory(x, z, xin, zin, k):
+        s.set(x, 12, z, GLASS); s.set(x, 13, z, GLASS)
+        if k % 2 == 0:
+            s.set_if_air(xin, 12, zin, LANT)
+            s.set_if_air(xin, 13, zin, LANT)
+
     for x in range(HX0 + 1, HX1):
         if x in PIERS_X:
             continue
-        for zp in (HZ0 + 1, HZ1 - 1):
-            s.set(x, 12, zp, LANT if x % 3 == 0 else GLASS)
-            if (x - HX0) % 7 in (3, 4, 5):
+        clerestory(x, HZ0 + 1, x, HZ0 + 2, x)
+        clerestory(x, HZ1 - 1, x, HZ1 - 2, x)
+        if (x - HX0) % 7 in (3, 4, 5):
+            for zp in (HZ0 + 1, HZ1 - 1):
                 s.set(x, 8, zp, GLASS); s.set(x, 9, zp, GLASS)
     for z in range(HZ0 + 1, HZ1):
         if z in PIERS_Z:
             continue
-        for xp in (HX0 + 1, HX1 - 1):
-            s.set(xp, 12, z, LANT if z % 3 == 0 else GLASS)
+        clerestory(HX0 + 1, z, HX0 + 2, z, z)
+        clerestory(HX1 - 1, z, HX1 - 2, z, z)
     for (za, zb) in ((7, 11), (13, 18), (20, 24)):
         c = (za + zb) // 2
         for xp, face in ((HX0 + 1, "west"), (HX1 - 1, "east")):
@@ -193,6 +249,11 @@ def build_factory():
             if i == 1 and not edge:
                 s.set(x, 16, z, LANT if z % 2 == 0 else BODY)       # lights behind the glass face
                 s.set(x, 17, z, LANT if z % 2 == 1 else BODY)
+            if edge and 1 <= i <= 5:                                # glowing purple base line of every tooth,
+                s.set(x, 16, z, GLASS)                              # visible from the north / south
+                zin = z + 1 if z == HZ0 - 1 else z - 1
+                if i in (2, 4):
+                    s.set(x, 16, zin, LANT)
     for x in (HX0 + 1, HX0 + 8, HX0 + 15, HX0 + 22):
         for z in (HZ0 - 1, HZ1 + 1):
             s.set(x, 19, z, st.end_rod("up"))
@@ -202,16 +263,17 @@ def build_factory():
         s.set(26, y, 23, BARS)
     s.set(26, 24, 23, st.lightning_rod("up"))
     for z in (21, 25):
-        s.set(26, 19, z, st.end_rod("up"))
+        s.set(26, 17, z, BODY)                                      # full block base for the rod
+        s.set(26, 18, z, st.end_rod("up"))
     for x in (10, 17, 24):
         s.set(x, 17, 15, st.trapdoor("iron", "north", "bottom", open=False))
 
     # ---- chimneys (3) on the north side, each with a manifold pipe and blue smoke
     for cx in (5, 14, 23):
         cz = 3
-        sh.cylinder(s, cx, 0, cz, 3.2, 2, BASE, axis="y")
-        sh.cylinder(s, cx, 3, cz, 3.0, 0, TRIM, axis="y")
-        sh.cylinder(s, cx, 4, cz, 2.8, 2, BODY, axis="y", r2=2.1)
+        sh.cylinder(s, cx, 0, cz, 3.2, 1, BASE, axis="y")                  # plinth buried to ground level
+        sh.cylinder(s, cx, 2, cz, 3.0, 0, TRIM, axis="y")                  # basalt foot ring at ground+1
+        sh.cylinder(s, cx, 3, cz, 2.8, 3, BODY, axis="y", r2=2.1)          # cone y3..6
         sh.cylinder(s, cx, 6, cz, 2.0, 19, BODY, axis="y")                 # y6..25
         for y in (9, 17, 24):
             sh.ring(s, cx, y, cz, 2.5, TRIM)
@@ -284,7 +346,8 @@ def build_factory():
     for x in (5, 16):
         sh.box(s, x, 3, 28, x, 8, 28, RAIL)
         s.set(x, 9, 28, TILE)
-    sh.box(s, 9, 2, 26, 12, 2, 29, MAG)                                    # dock markings
+    sh.box(s, 9, 2, 26, 12, 2, 28, MAG)                                    # dock markings
+    post(s, 3, 3, 28); post(s, 24, 3, 28)                                  # apron lamp posts
     for (x, z) in ((17, 27), (18, 27), (17, 28), (4, 27), (5, 27)):
         s.set(x, 3, z, "minecraft:barrel[facing=up,open=false]")
     s.set(18, 4, 27, "minecraft:barrel[facing=up,open=false]")
@@ -342,6 +405,7 @@ def build_factory():
             s.set(x, 6, 15, st.facing_block("minecraft:observer", "down"))
     for x in (10, 16, 22):
         s.set(x, 6, 14, GLASS2); s.set(x, 6, 17, GLASS2)
+        s.set(x, 5, 14, st.chain("y"))                                     # lamp hung from the beam
         s.set(x, 4, 14, st.redstone_lamp(True))
     s.set(8, 3, 18, "minecraft:cauldron"); s.set(9, 3, 18, "minecraft:cauldron")
     for x in (11, 12):
@@ -358,12 +422,13 @@ def build_factory():
         s.set(x, 11, IZ0, FROG)
     for i in range(6):                                                     # ramp x4..9, y3..8 at z=10
         s.set(4 + i, 3 + i, IZ0 + 2, st.stairs(ST_D, "east"))
-        if i % 2 == 1:
-            sh.box(s, 4 + i, 3, IZ0 + 2, 4 + i, 2 + i, IZ0 + 2, RAIL)
-    s.set(10, 9, IZ0 + 2, BASE); s.set(11, 9, IZ0 + 2, BASE)
-    s.set(10, 10, IZ0 + 3, RAIL); s.set(11, 10, IZ0 + 3, RAIL)
-    for i in range(6):
-        s.set(4 + i, 4 + i, IZ0 + 3, RAIL)
+        if i > 0:
+            sh.box(s, 4 + i, 3, IZ0 + 2, 4 + i, 2 + i, IZ0 + 2, TILE)      # solid under every tread
+            sh.box(s, 4 + i, 3, IZ0 + 3, 4 + i, 2 + i, IZ0 + 3, TILE)      # parapet core beside it
+        s.set(4 + i, 3 + i, IZ0 + 3, RAIL)                                 # railing at tread height
+    s.set(10, 9, IZ0 + 2, BASE); s.set(11, 9, IZ0 + 2, BASE)               # landing
+    sh.box(s, 10, 3, IZ0 + 2, 11, 8, IZ0 + 3, TILE)
+    s.set(10, 9, IZ0 + 3, RAIL); s.set(11, 9, IZ0 + 3, RAIL)
     # control room corner (east), storage stacks, lights in the ceiling
     for z in (11, 12, 13):
         s.set(IX1, 3, z, st.facing_block("minecraft:observer", "west"))
@@ -386,6 +451,8 @@ def build_factory():
     sculk_patch(s, [(29, 2, 24), (29, 2, 25), (29, 2, 26), (30, 2, 25), (31, 2, 25)], seed=2)
     s.set(38, 2, 8, "minecraft:sculk"); s.set(38, 2, 7, "minecraft:sculk")
     lamp_post(s, 0, 4, 26); lamp_post(s, 29, 4, 26)
+    podium_bevel(s, 2)
+    podium_snow(s, 2, seed=21)
     return finish(s, 21)
 
 
@@ -482,7 +549,7 @@ def capsule(s, level_y, face, c, glass_end=True, beds=True, seed=0):
 
 
 def build_hab():
-    W, H, L = 26, 36, 26
+    W, H, L = 26, 36, 29                         # 3 extra rows south for the entrance path
     s = Schematic(W, H, L, ground=G)
     CX0, CX1, CZ0, CZ1 = 8, 17, 8, 17           # core pier plane (10x10)
     TOP = 32                                     # roof deck y
@@ -584,20 +651,34 @@ def build_hab():
     sh.box(s, 10, 6, CZ1 + 1, 15, 6, CZ1 + 3, st.slab(ST_T, "top"))         # canopy
     sh.box(s, 10, 6, CZ1 + 3, 15, 6, CZ1 + 3, TILE)
     s.set(12, 6, CZ1 + 2, FROG); s.set(13, 6, CZ1 + 2, FROG)
+    for x in (11, 14):                                                     # lit canopy front: magenta + froglight
+        s.set(x, 6, CZ1 + 3, GLASS2)
+    for x in (12, 13):
+        s.set(x, 6, CZ1 + 3, FROG)
     for x in (10, 15):
         sh.box(s, x, 2, CZ1 + 3, x, 5, CZ1 + 3, RAIL)
-    sh.box(s, 12, 1, CZ1 + 2, 13, 1, 25, MAG)
-    sh.box(s, 11, 1, CZ1 + 2, 11, 1, 25, BASE); sh.box(s, 14, 1, CZ1 + 2, 14, 1, 25, BASE)
+    sh.box(s, 12, 1, CZ1 + 2, 13, 1, 28, MAG)                              # path runs 3 past the capsule end
+    sh.box(s, 11, 1, CZ1 + 2, 11, 1, 28, BASE); sh.box(s, 14, 1, CZ1 + 2, 14, 1, 28, BASE)
+    for z in (CZ1 + 4, CZ1 + 8, 28):                                       # sea-lantern kerb lights
+        s.set(11, 1, z, LANT); s.set(14, 1, z, LANT)
+    s.set(11, 2, 28, st.stairs(ST_T, "east")); s.set(14, 2, 28, st.stairs(ST_T, "west"))   # low kerb ends
     s.add_sign(14, 5, CZ1, SIGN + "[facing=south]", ["BLOC H-4", "quartier", "troupes", "badge requis"])
-    # ---- lift cage on the south-east: iron bars column with chains, motor housing, door slots at every level
+    # ---- lift cage on the south-east: open cage - chain corner posts with tile collars, bars only on the two
+    # outer faces (east, south), glazed cabin at the bottom, cable up to the motor housing, door slots per level
     LX0, LX1, LZ0, LZ1 = 15, 17, CZ1 + 1, CZ1 + 3
     sh.box(s, LX0, 0, LZ0, LX1, 2, LZ1, BASE)
-    sh.box(s, LX0, 3, LZ0, LX1, TOP - 1, LZ1, BARS)
-    sh.box(s, LX0 + 1, 3, LZ0 + 1, LX1 - 1, TOP - 1, LZ1 - 1, "air")
-    sh.box(s, LX0 + 1, 3, LZ0, LX1 - 1, TOP - 1, LZ0, "air")               # open toward the core wall
-    for y in range(4, TOP - 1):
-        s.set(LX0 + 1, y, LZ0 + 1, st.chain("y"))
-    s.set(LX0 + 1, 3, LZ0 + 1, st.trapdoor("iron", "north", "bottom", open=False))   # cabin floor
+    for (x, z) in ((LX0, LZ0), (LX1, LZ0), (LX0, LZ1), (LX1, LZ1)):
+        for y in range(3, TOP):
+            s.set(x, y, z, TILE if y in (3, 11, 19, 27) else st.chain("y"))
+    for y in range(3, TOP):
+        s.set(LX0 + 1, y, LZ1, BARS)                                        # south face
+        s.set(LX1, y, LZ0 + 1, BARS)                                        # east face
+    s.set(LX0 + 1, 3, LZ0 + 1, LANT)                                        # cabin floor light
+    for y in (4, 5):
+        s.set(LX0 + 1, y, LZ1, GLASS2); s.set(LX1, y, LZ0 + 1, GLASS2)      # cabin window strip
+    s.set(LX0 + 1, 6, LZ0 + 1, BODY)                                        # cabin roof
+    for y in range(7, TOP):
+        s.set(LX0 + 1, y, LZ0 + 1, st.chain("y"))                           # lift cable
     sh.box(s, LX0, TOP, LZ0, LX1, TOP + 1, LZ1, BODY)                       # motor housing
     s.set(LX0 + 1, TOP + 2, LZ0 + 1, TRIM)
     s.set(LX0 + 1, TOP + 3, LZ0 + 1, st.lightning_rod("up"))
@@ -606,9 +687,6 @@ def build_hab():
             s.set(x, y + 1, z, "air"); s.set(x, y + 2, z, "air")
         s.set(16, y + 3, CZ1, GLASS2)
         s.set(16, y, CZ1 - 1, BASE)
-    for y in (3, 11, 19, 27):
-        for x in (LX0, LX1):
-            s.set(x, y, LZ1, TRIM)
     # ---- roof: deck, parapet, corner spikes, antennas, vents, beacon box
     sh.box(s, CX0, TOP, CZ0, CX1, TOP, CZ1, BASE)
     for x in range(CX0, CX1 + 1):
@@ -684,6 +762,19 @@ def build_hangar():
             s.set(x, 2, z, BASE); s.set(x, 3, z, TRIM); s.set(x, 4, z, CRY)
             s.set(x, 2, z - 1 if z else 1, TRIM)
         sh.box(s, x, 5, 0, x, 5, 0, TILE); sh.box(s, x, 5, L - 1, x, 5, L - 1, TILE)
+    # bevel the ring steps of the shell between the ribs: every shell block with air above and air on its
+    # outward side becomes a deepslate-tile stair whose tall side faces the ridge (ribs stay proud)
+    for x in range(W):
+        if x in (3, 9, 15, 21, 27, 33):
+            continue
+        for y in range(CY + 2, s.h - 1):
+            for z in range(s.l):
+                if s.get(x, y, z) != BODY or not s.is_air(x, y + 1, z):
+                    continue
+                if z < CZ and (z == 0 or s.is_air(x, y, z - 1)):
+                    s.set(x, y, z, st.stairs(ST_T, "south"))
+                elif z > CZ and (z == L - 1 or s.is_air(x, y, z + 1)):
+                    s.set(x, y, z, st.stairs(ST_T, "north"))
     # ridge line + skylight strips between the ribs (glass on top, lanterns underneath)
     for x in range(2, W - 2):
         if x in (3, 9, 15, 21, 27, 33):

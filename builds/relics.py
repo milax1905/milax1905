@@ -1,12 +1,15 @@
 """Relics: two 'special' set pieces for the snow world.
 
-alien_skeleton  - a giant frozen alien creature, half-buried: curved spine, nine barrel-arched ribs (plus one lying
-                  loose), a horned skull with dark eye sockets, pelvis, one fore-limb raised out of the snow with
-                  claws open to the sky, tall blue crystal spikes grown through the bones, a snow drift filling
-                  half the ribcage and a small scientists' camp (A-frame tent, survey grid, lantern posts, journal).
-mech_wreck      - a downed bipedal walker (~16 tall standing) kneeling in the snow: one leg buckled and lying flat,
-                  the other crouched, torso tilted, a lofted cockpit with cracked glass, one arm cannon dug into a
-                  crater, the other arm reaching up, hanging cables, sparks, blue smoke, scorched snow.
+alien_skeleton  - a giant frozen alien creature, half-buried: curved spine, twelve thin barrel-arched ribs (plus one
+                  lying loose), a horned skull with dark eye sockets, pelvis, one fore-limb bent and reaching over the
+                  snow with three curled claws, tall tapered blue crystal spikes grown through the bones, a wind-blown
+                  snow drift filling the south half of the ribcage and a small scientists' camp (4-high A-frame tent,
+                  survey grid, lantern posts, journal).
+mech_wreck      - a downed bipedal walker (~20 tall standing) kneeling in the snow, built from clearly articulated
+                  parts: one leg folded (knee in the snow, shin flat behind, foot up on its toes), the other planted
+                  forward, a boxy tilted torso with an inset chest panel, purpur accents and dark seams, a glass
+                  cockpit with a cracked corner, a sensor head with a red eye, an arm cannon dug into a crater, the
+                  other arm raised with a 3-finger claw, exhaust stacks with blue smoke, torn cables, scorched snow.
 """
 import math
 import random
@@ -15,7 +18,7 @@ import numpy as np
 
 from tools.schem import Schematic, AIR
 from tools import shapes as sh, states as st
-from tools.palette import GROUND, SHIP, CAMP, CRYSTAL, MIX_SCORCH, MIX_SNOW
+from tools.palette import GROUND, SHIP, CAMP, CRYSTAL, MIX_SCORCH, MIX_SNOW, MIX_WHITE
 
 BONE = "minecraft:bone_block"
 BONE_DARK = "minecraft:polished_deepslate"          # shadow / structure line on the underside of bones
@@ -34,23 +37,38 @@ def axis_of(dx, dy, dz):
     return "y" if ay >= az else "z"
 
 
-def path(pts):
-    """Dense integer positions along a float polyline (8-connected, no duplicates)."""
-    out = []
-    for a, b in zip(pts[:-1], pts[1:]):
-        n = max(int(math.ceil(2 * max(abs(b[k] - a[k]) for k in range(3)))), 1)
-        for i in range(n + 1):
-            t = i / n
-            p = tuple(int(round(a[k] + (b[k] - a[k]) * t)) for k in range(3))
-            if not out or out[-1] != p:
-                out.append(p)
+def line6(p1, p2):
+    """Integer cells from p1 to p2 that are 6-connected (never a diagonal-only step), without duplicates."""
+    n = max(int(math.ceil(2 * max(abs(p2[k] - p1[k]) for k in range(3)))), 1)
+    out, seen, prev = [], set(), None
+    for i in range(n + 1):
+        t = i / n
+        cur = [int(round(p1[k] + (p2[k] - p1[k]) * t)) for k in range(3)]
+        if prev is None:
+            step = [cur]
+        else:
+            step, cell = [], list(prev)
+            for k in (1, 0, 2):                                  # y first, then x, then z
+                while cell[k] != cur[k]:
+                    cell[k] += 1 if cur[k] > cell[k] else -1
+                    step.append(list(cell))
+        for c in step:
+            c = tuple(c)
+            if c not in seen:
+                seen.add(c)
+                out.append(c)
+        prev = cur
     return out
 
 
 def bone_line(s, p1, p2, r=1.0):
     """A solid bone (3 thick when r=1) with the pillar axis following the segment."""
     ax = axis_of(p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
-    sh.line(s, p1, p2, bone(ax), radius=r)
+    if r <= 0:
+        for (x, y, z) in line6(p1, p2):
+            s.set(x, y, z, bone(ax))
+    else:
+        sh.line(s, p1, p2, bone(ax), radius=r)
 
 
 def clip_below(s, y_keep, replace):
@@ -60,39 +78,50 @@ def clip_below(s, y_keep, replace):
 
 
 def crystal_spike(s, base, tip, r0, seed=1):
-    """A tall tilted crystal spike: light-blue glass skin at the base fading to blue ice, dripstone point,
-    amethyst clusters growing out of its flanks and a sea lantern buried under the base for a glow."""
+    """A tall tapered crystal spike leaning off vertical: wide blue-ice base thinning to a single block, then a
+    pointed-dripstone point; light-blue glass facets, amethyst clusters growing out of the flanks, a sea lantern
+    buried under the base for a cold glow."""
     rng = random.Random(seed)
     n = max(int(2 * max(abs(tip[k] - base[k]) for k in range(3))), 2)
+    top = None
     for i in range(n + 1):
         t = i / n
         x, y, z = (base[k] + (tip[k] - base[k]) * t for k in range(3))
-        r = r0 * (1 - t) ** 0.75
-        if r < 0.3:
+        r = r0 * (1 - t) ** 1.15
+        if r < 0.1:
             break
-        blk = GROUND["ice_glass"] if t < 0.28 else (GROUND["ice"] if t < 0.5 and rng.random() < 0.3 else GROUND["ice_light"])
+        if t < 0.15:
+            blk = GROUND["ice"] if rng.random() < 0.5 else GROUND["ice_light"]
+        else:
+            blk = GROUND["ice_glass"] if rng.random() < 0.28 else GROUND["ice_light"]
         sh.sphere(s, x, y, z, r, blk)
-    x, y, z = (round(tip[k]) for k in range(3))
-    if s.is_air(x, y, z):
-        s.set(x, y, z, st.pointed_dripstone("up", "tip"))
+        top = (round(x), round(y), round(z))
+    if top is not None:                                          # dripstone point on top of the last crystal block
+        x, y, z = top
+        ty = s.top_y(x, z)
+        if ty >= y and s.is_air(x, ty + 1, z) and s.is_air(x, ty + 2, z):
+            s.set(x, ty + 1, z, st.pointed_dripstone("up", "frustum"))
+            s.set(x, ty + 2, z, st.pointed_dripstone("up", "tip"))
     s.set(round(base[0]), round(base[1]) - 1, round(base[2]), CRYSTAL["glow_cold"])
-    # clusters on the flanks
-    for t in (0.22, 0.4, 0.58):
+    # clusters / buds growing sideways out of the flanks
+    for t in (0.18, 0.32, 0.46, 0.6):
         x, y, z = (round(base[k] + (tip[k] - base[k]) * t) for k in range(3))
         for (dx, dz, facing) in ((1, 0, "east"), (-1, 0, "west"), (0, 1, "south"), (0, -1, "north")):
-            if rng.random() < 0.5:
+            if rng.random() < 0.55:
                 continue
             for d in range(1, 4):
                 px, pz = x + dx * d, z + dz * d
                 if s.is_air(px, y, pz):
-                    if "ice" in s.get(px - dx, y, pz - dz) or "glass" in s.get(px - dx, y, pz - dz):
-                        s.set(px, y, pz, CRYSTAL["cluster"] + f"[facing={facing}]")
+                    nb = s.get(px - dx, y, pz - dz)
+                    if "ice" in nb or "glass" in nb:
+                        blk = CRYSTAL["cluster"] if rng.random() < 0.6 else CRYSTAL["bud"]
+                        s.set(px, y, pz, blk + f"[facing={facing}]")
                     break
 
 
 # =================================================================================================== SKELETON
 def build_skeleton():
-    W, H, L, G = 60, 24, 30, 3
+    W, H, L, G = 60, 26, 30, 3
     s = Schematic(W, H, L, ground=G)
     rng = random.Random(7)
     sh.ground_slab(s, G, SNOW, depth=4)
@@ -110,15 +139,20 @@ def build_skeleton():
         z = ZC + 1.8 * math.sin(2 * math.pi * t) + (6.0 * ((t - 0.75) / 0.25) ** 1.3 if t > 0.75 else 0)
         return y, z
 
-    rib_xs = list(range(18, 51, 4))                          # 9 ribs, 4 apart (2 wide -> 2-block gaps)
+    rib_xs = list(range(17, 52, 3))                          # 12 ribs, 3 apart (1 wide -> 2-block gaps)
+    spine_xs = rib_xs[::2] + [54]                            # vertebrae carrying a neural spine
 
-    # ---------------------------------------------------------------- rib cage: barrel arcs
+    def rib_rz(x):
+        sz = 1 - 0.5 * ((x - 34) / 16.0) ** 2
+        return 2.0 + 7.5 * sz
+
+    # ---------------------------------------------------------------- rib cage: thin barrel arcs
     icicles = []
     dark_pts = []
 
     def rib_points(x0, side, ys, zs, ry, rz, phi_max, sweep):
         pts = []
-        n = 90
+        n = 60
         for k in range(n + 1):
             u = k / n
             phi = math.radians(phi_max) * u
@@ -126,39 +160,43 @@ def build_skeleton():
         return pts
 
     def draw_rib(s, pts, side, break_at=None):
-        seen = set()
+        cells = []
+        prev = None
         for (x, y, z, phi, u) in pts:
             if break_at is not None and phi > break_at:
                 break
-            xi, yi, zi = round(x), round(y), round(z)
+            cur = (round(x), round(y), round(z))
+            if prev is None:
+                cells.append((cur, phi, u))
+            elif cur != prev:
+                for c in line6(prev, cur)[1:]:                    # keep the arc 6-connected
+                    cells.append((c, phi, u))
+            prev = cur
+        seen = set()
+        got_icicle = False
+        for ((xi, yi, zi), phi, u) in cells:
             if (xi, yi, zi) in seen:
                 continue
             seen.add((xi, yi, zi))
-            wx = 2 if u < 0.8 else 1
-            fat = u < 0.6
             ax = axis_of(0.2, -math.sin(phi), math.cos(phi))
-            # inner (cage-side) neighbour: below near the top of the arch, towards the spine near the ground
-            inner = (0, -1, 0) if abs(math.cos(phi)) >= abs(math.sin(phi)) else (0, 0, -side)
-            for w in range(wx):
-                s.set(xi + w, yi, zi, bone(ax))
-                if fat:                                        # 2-thick ribbon: bone outside, dark structure inside
-                    s.set(xi + w, yi + inner[1], zi + inner[2], bone(ax))
-                    dark_pts.append((xi + w, yi + inner[1], zi + inner[2]))
-            if side == -1 and fat and 0.35 < u < 0.42 and xi % 2 == 0:
-                icicles.append((xi, yi - 2, zi))
+            s.set(xi, yi, zi, bone(ax))
+            if u > 0.5:                                          # dark structure line on the cage side, lower part only
+                dark_pts.append((xi, yi, zi - side))
+            if side == -1 and not got_icicle and 0.3 < u < 0.42:
+                icicles.append((xi, yi - 1, zi))
+                got_icicle = True
 
     for i, x in enumerate(rib_xs):
         ys, zs = spine(x)
-        sz = 1 - 0.5 * ((x - 34) / 16.0) ** 2
-        rz = 1.0 + 7.5 * sz
+        rz = rib_rz(x)
         ry = ys - 1 - G
         for side in (-1, 1):
             if side == -1 and i == 4:                          # missing rib (lies loose on the snow, see below)
                 continue
             broken = None
-            if side == -1 and i in (2, 6):                     # two broken ribs on the exposed (north) side
-                broken = math.radians(55 if i == 2 else 78)
-            pts = rib_points(x, side, ys, zs, ry, rz, 102, 2.0)
+            if side == -1 and i in (2, 7):                     # two broken ribs on the exposed (north) side
+                broken = math.radians(50 if i == 2 else 72)
+            pts = rib_points(x, side, ys, zs, ry, rz, 115, 2.0)
             draw_rib(s, pts, side, broken)
     # the missing rib lies broken on the snow north of the cage (two pieces)
     for (a, b) in (((28, G + 1, 4), (34, G + 1, 3)), ((36, G + 1, 4), (40, G + 2, 6))):
@@ -177,14 +215,14 @@ def build_skeleton():
             s.set(x, yi - 1, zi, BONE_DARK)
         elif x > 54:                                           # tail: 2 wide, always 6-connected to the previous vertebra
             s.set(x, yi, zi - 1, bone(ax)); s.set(x - 1, yi, zi, bone(ax))
-        if x in rib_xs or x == 54:                             # neural spines on the rib vertebrae
+        if x in spine_xs:                                      # neural spines on every other rib vertebra
             hgt = 2 if 26 <= x <= 46 else 1
             for k in range(1, hgt + 1):
                 s.set(x, yi + k, zi, bone("y"))
             s.set(x, yi + hgt + 1, zi, st.pointed_dripstone("up", "tip"))
         prev = (y, z)
     for (x, y, z) in dark_pts:                                 # dark structure line on the inner face of each rib
-        if "bone" in s.get(x, y, z):
+        if s.is_air(x, y, z) or "bone" in s.get(x, y, z):
             s.set(x, y, z, BONE_DARK)
 
     # ---------------------------------------------------------------- pelvis + hind leg
@@ -244,22 +282,33 @@ def build_skeleton():
             if ty >= G + 1 and "bone" in s.get(x, ty, zz) and s.is_air(x, ty + 1, zz):
                 s.set(x, ty + 1, zz, st.pointed_dripstone("up", "tip"))
 
-    # ---------------------------------------------------------------- raised fore-limb (north side, outside the cage)
-    sy, sz_ = spine(27)
-    shoulder = (27, round(sy) - 2, 12)
-    elbow = (24, G + 9, 5)
-    wrist = (21, G + 15, 5)
-    bone_line(s, (27, round(sy), round(sz_) - 1), shoulder, r=1.0)          # scapula joins the column
-    bone_line(s, shoulder, elbow, r=1.0)                                    # humerus (3 thick)
-    bone_line(s, elbow, wrist, r=1.0)                                       # forearm
-    sh.sphere(s, *shoulder, 2.0, BONE)
-    sh.sphere(s, *elbow, 2.0, BONE)
-    sh.sphere(s, *wrist, 1.6, BONE)
-    for (ex, ey, ez) in ((17, G + 17, 3), (20, G + 19, 8), (24, G + 18, 3)):   # claws start inside the wrist ball
-        bone_line(s, wrist, (ex, ey, ez), r=0.55)
-        if s.inside(ex, ey + 1, ez):
-            s.set(ex, ey + 1, ez, st.pointed_dripstone("up", "tip"))
+    # ---------------------------------------------------------------- bent fore-limb reaching over the north side
+    sy, sz_ = spine(26)
+    shoulder = (26, round(sy) - 1, 11)                                       # scapula, just under the column
+    elbow = (31, G + 13, 6)                                                   # humerus leans back (towards the tail)
+    wrist = (25, G + 18, 5)                                                   # forearm leans forward, over the ribs
+    bone_line(s, (26, round(sy), round(sz_) - 1), shoulder, r=1.0)
+    bone_line(s, shoulder, elbow, r=1.2)                                     # humerus
+    bone_line(s, elbow, wrist, r=0.9)                                        # forearm
+    sh.sphere(s, *shoulder, 1.8, BONE)
+    sh.sphere(s, *elbow, 1.9, BONE)
     sh.sphere(s, elbow[0], elbow[1] - 1, elbow[2], 1.0, BONE_DARK)          # dark shadow under the elbow
+    sh.sphere(s, *wrist, 1.4, BONE)
+    # three curled digits: knuckle up and forward, tip curling down, dripstone claw
+    for k in (-1, 0, 1):
+        knuckle = (22, G + 20 + (1 if k == 0 else 0), 5 + 2 * k)
+        tip = (19, G + 18, 5 + 3 * k)
+        for (a, b, fat) in (((wrist[0] - 1, wrist[1] + 1, wrist[2] + k), knuckle, True), (knuckle, tip, False)):
+            cells = line6(a, b)
+            for j, (x, y, z) in enumerate(cells):
+                s.set(x, y, z, bone(axis_of(b[0] - a[0], b[1] - a[1], b[2] - a[2])))
+                if fat and j < len(cells) // 2:                 # thicker at the base of the digit
+                    s.set(x, y - 1, z, bone("y"))
+        s.set(tip[0], tip[1] - 1, tip[2], st.pointed_dripstone("down", "frustum"))
+        s.set(tip[0], tip[1] - 2, tip[2], st.pointed_dripstone("down", "tip"))
+    s.set(24, G + 17, 5, CRYSTAL["ice"])                                     # crystal grown in the palm
+    s.set(24, G + 16, 5, CRYSTAL["cluster"] + "[facing=down]")
+    s.set(23, G + 18, 5, CRYSTAL["cluster"] + "[facing=west]")
     # the other fore-limb: buried, only the shoulder blade shows on the south side
     sy2, sz2 = spine(27)
     bone_line(s, (27, round(sy2) - 1, round(sz2) + 2), (29, G + 1, round(sz2) + 8), r=1.0)
@@ -269,11 +318,14 @@ def build_skeleton():
     s.data[:, :G + 1, :][s.data[:, :G + 1, :] == 0] = s.pid(SNOW)
 
     # ---------------------------------------------------------------- crystals grown through the bones
-    crystal_spike(s, (39, G + 1, 20), (41, G + 12, 23), 2.0, seed=1)        # grows through rib 38 (south)
-    crystal_spike(s, (31, G + 1, 9), (28, G + 11, 6), 1.8, seed=2)          # through rib 30 (north)
-    crystal_spike(s, (47, G + 1, 21), (48, G + 9, 24), 1.4, seed=3)
-    crystal_spike(s, (22, G + 1, 24), (20, G + 8, 25), 1.2, seed=4)
-    crystal_spike(s, (55, G + 1, 25), (58, G + 8, 27), 1.3, seed=5)
+    crystal_spike(s, (39, G + 1, 20), (42, G + 13, 24), 2.1, seed=1)        # grows through rib 38 (south)
+    crystal_spike(s, (37, G + 1, 23), (36, G + 6, 25), 1.2, seed=11)
+    crystal_spike(s, (31, G + 1, 9), (27, G + 12, 6), 1.9, seed=2)          # through rib 29 (north, the missing one)
+    crystal_spike(s, (33, G + 1, 8), (34, G + 6, 6), 1.1, seed=12)
+    crystal_spike(s, (47, G + 1, 21), (49, G + 10, 24), 1.5, seed=3)
+    crystal_spike(s, (22, G + 1, 24), (20, G + 8, 26), 1.2, seed=4)
+    crystal_spike(s, (55, G + 1, 25), (58, G + 9, 27), 1.4, seed=5)
+    crystal_spike(s, (57, G + 1, 23), (59, G + 5, 23), 0.9, seed=13)
     for (x, y, z) in icicles:                                              # icicles under the north ribs
         if s.is_air(x, y, z) and not s.is_air(x, y + 1, z):
             s.set(x, y, z, st.pointed_dripstone("down", "frustum"))
@@ -285,16 +337,18 @@ def build_skeleton():
         if ty > G and "bone" in s.get(x, ty, z) and s.is_air(x, ty + 1, z):
             s.set(x, ty + 1, z, (CRYSTAL["cluster"] if rng.random() < 0.7 else CRYSTAL["bud"]) + "[facing=up]")
 
-    # ---------------------------------------------------------------- snow drift filling the south half of the cage
-    for x in range(16, 60):
-        for z in range(ZC - 3, L):
-            sy_, szx = spine(x)
-            sz = max(0.0, 1 - 0.55 * ((x - 35) / 17.0) ** 2)
-            d = (z - szx) / 9.0
-            if d < -0.3:
-                continue
-            base_h = 0.5 * (sy_ - G - 1.0) * sz
-            h = base_h * max(0.0, 1 - max(0.0, d) ** 1.6) * (0.75 + 0.5 * sh.value_noise2(x, z, 21, 7.0))
+    # ---------------------------------------------------------------- wind-blown drift filling the south half of the cage
+    for x in range(22, 60):
+        sy_, szx = spine(x)
+        zw = szx + 1 + rib_rz(x) * 0.95                                    # where the south rib wall meets the snow
+        prof = max(0.0, 1 - ((x - 40) / 18.0) ** 2)
+        for z in range(ZC - 2, L):
+            d = z - zw
+            if d >= 0:
+                f = max(0.0, 1 - (d / 3.5) ** 2)                           # spills 2-3 blocks outside the last rib
+            else:
+                f = max(0.0, 1 - (-d / 10.0) ** 1.4)                       # fades towards the spine
+            h = 5.2 * prof * f * (0.8 + 0.4 * sh.value_noise2(x, z, 21, 7.0))
             if x > 52:                                                     # tail buried under a long dune
                 h = max(h, 3.0 * max(0.0, 1 - ((z - szx) / 7.0) ** 2) * (1 - (x - 52) / 9.0))
             for y in range(G + 1, G + 1 + int(round(h))):
@@ -320,55 +374,65 @@ def build_skeleton():
     sh.sphere(s, 46, G + 1, 7, 1.2, BONE)                                  # a vertebra sticking out of the drift
 
     # ---------------------------------------------------------------- scientists' camp (south-west, by the skull)
-    tx1, tx2, tz = 9, 14, 24                                               # A-frame tent, ridge along x
-    for x in range(3, 20):                                                 # trodden pad (irregular)
+    tx1, tx2, tz = 9, 15, 24                                               # A-frame tent, ridge along x, 4 high
+    RIDGE = "minecraft:stripped_spruce_log"
+    for x in range(3, 21):                                                 # trodden pad (irregular)
         for z in range(18, 29):
-            if math.hypot((x - 11) / 8.0, (z - 24) / 5.0) < 0.75 + 0.5 * sh.value_noise2(x, z, 9, 3.0):
+            if math.hypot((x - 12) / 8.5, (z - 24) / 5.0) < 0.75 + 0.5 * sh.value_noise2(x, z, 9, 3.0):
                 s.set(x, G, z, CAMP["trodden_snow"])
+    for x in range(tx1 + 1, tx2):                                          # plank floor inside
+        for dz in range(-2, 3):
+            s.set(x, G, tz + dz, CAMP["plank_light"])
     for x in range(tx1, tx2 + 1):
-        for dz in range(-4, 5):
-            for dy in range(0, 4):
-                lvl = abs(dz) + dy
-                z, y = tz + dz, G + 1 + dy
-                if lvl == 3:                                               # sloped canvas, one block thick
-                    s.set(x, y, z, CAMP["tent_accent"] if dz == 0 else CAMP["tent"])
-                elif lvl < 3:
-                    gable = x in (tx1, tx2)
-                    if gable and not (x == tx1 and dz in (-1, 0) and dy < 2):
-                        s.set(x, y, z, CAMP["tent_accent"] if lvl == 2 else CAMP["tent"])
-                    else:
-                        s.set(x, y, z, AIR)
-    for x in range(tx1, tx2 + 1):
-        s.set(x, G + 5, tz, st.slab("quartz"))                             # ridge cap
+        for dy in range(4):
+            y = G + 1 + dy
+            for side in (-1, 1):
+                facing = "north" if side == 1 else "south"                 # tall side towards the ridge
+                s.set(x, y, tz + side * (4 - dy), st.stairs("quartz", facing))
+                if 3 - dy > 0:
+                    blk = CAMP["tent_accent"] if x in (tx1 + 3,) else CAMP["tent"]
+                    s.set(x, y, tz + side * (3 - dy), blk)
+        s.set(x, G + 4, tz, st.log(RIDGE, "x"))                            # dark ridge beam
+    for dy in range(3):                                                    # east gable closed (cyan diamond)
+        for dz in range(-(2 - dy), 3 - dy):
+            blk = CAMP["tent_accent"] if abs(dz) + dy <= 1 else CAMP["tent"]
+            s.set(tx2, G + 1 + dy, tz + dz, blk)
+    s.set(tx1, G + 3, tz, CAMP["tent_accent"])                             # west gable open, small cyan peak
     # guy ropes at both gables + banners
     for (gx, dx) in ((tx1, -1), (tx2, 1)):
         s.set(gx + dx, G + 4, tz, st.chain("x"))
         s.set(gx + 2 * dx, G + 4, tz, st.chain("x"))
         for y in range(G + 1, G + 5):
             s.set(gx + 3 * dx, y, tz, CAMP["pole"])
-    s.set(tx1 - 1, G + 2, tz + 2, st.wall_banner("cyan", "west"))
-    s.set(tx2 + 1, G + 2, tz - 2, st.wall_banner("white", "east"))
-    # interior: bed, lantern, table with candle, barrel, loot chest
+    s.set(tx1 - 3, G + 2, tz + 1, st.wall_banner("cyan", "south"))
+    s.set(tx2 + 3, G + 2, tz - 1, st.wall_banner("white", "north"))
+    # interior: bed, hanging lantern under the ridge, table with candle, barrel, loot chest
     s.set(12, G + 1, tz - 1, st.bed(CAMP["bed"], "east", "head"))
     s.set(11, G + 1, tz - 1, st.bed(CAMP["bed"], "east", "foot"))
-    s.set(11, G + 3, tz, st.lantern(hanging=True))
-    s.set(12, G + 1, tz + 1, CAMP["table"])
-    s.set(12, G + 2, tz + 1, st.candle("cyan", 2))
-    s.set(13, G + 1, tz + 1, "minecraft:barrel[facing=up,open=false]")
-    s.add_chest(13, G + 1, tz - 1, "west", "minecraft:chests/igloo_chest")
+    s.set(12, G + 3, tz, st.lantern(hanging=True))
+    s.set(13, G + 1, tz + 1, CAMP["table"])
+    s.set(13, G + 2, tz + 1, st.candle("cyan", 2))
+    s.set(14, G + 1, tz + 1, "minecraft:barrel[facing=up,open=false]")
+    s.add_chest(14, G + 1, tz - 1, "west", "minecraft:chests/igloo_chest")
+    # leeward (north) drift piling against the tent
+    for x in range(tx1 - 1, tx2 + 2):
+        for dz in (5, 6, 7):
+            h = (3 - (dz - 5)) * (0.5 + 0.5 * sh.value_noise2(x, dz, 17, 3.0)) - (0.6 if x in (tx1 - 1, tx2 + 1) else 0)
+            for y in range(G + 1, G + 1 + int(round(h))):
+                s.set_if_air(x, y, tz - dz, SNOW)
     # outside: campfire ring, lantern posts, journal on a lectern, crates + radio
     s.set(5, G + 1, tz, st.campfire())
     for (x, z) in ((4, tz - 1), (6, tz - 1), (4, tz + 1), (6, tz + 1)):
         s.set(x, G + 1, z, st.slab("polished_deepslate"))
-    for (x, z) in ((6, 20), (17, 27)):
+    for (x, z) in ((6, 20), (19, 27)):
         s.set(x, G + 1, z, CAMP["pole"]); s.set(x, G + 2, z, CAMP["pole"]); s.set(x, G + 3, z, st.lantern())
-    s.set(16, G + 1, 24, st.facing_block("minecraft:lectern", "east"))
-    s.add_sign(17, G + 1, 24, "minecraft:warped_sign[rotation=4]", ["JOURNAL 12", "os de 40m", "pas terrestre", "cristaux vivants"])
-    s.set(16, G + 1, 21, "minecraft:barrel[facing=up,open=false]")
-    s.set(17, G + 1, 21, "minecraft:barrel[facing=east,open=false]")
-    s.set(16, G + 2, 21, CAMP["radio"] + "[facing=west]")
-    s.set(17, G + 2, 21, CAMP["antenna"] + "[facing=up]")
-    s.set(14, G + 1, 27, SHIP["container"])                               # sample box
+    s.set(19, G + 1, 24, st.facing_block("minecraft:lectern", "east"))
+    s.add_sign(20, G + 1, 24, "minecraft:warped_sign[rotation=4]", ["JOURNAL 12", "os de 40m", "pas terrestre", "cristaux vivants"])
+    s.set(19, G + 1, 21, "minecraft:barrel[facing=up,open=false]")
+    s.set(20, G + 1, 21, "minecraft:barrel[facing=east,open=false]")
+    s.set(19, G + 2, 21, CAMP["radio"] + "[facing=west]")
+    s.set(20, G + 2, 21, CAMP["antenna"] + "[facing=up]")
+    s.set(16, G + 1, 27, SHIP["container"])                               # sample box
     s.add_sign(8, G + 1, 20, "minecraft:warped_sign[rotation=12]", ["CAMP OS-7", "equipe 3", "retour dans", "4 jours"])
     # survey grid: fence markers with cyan banners joined by rope lines (chains)
     markers_n = [(20, 2), (32, 2), (44, 2)]
@@ -389,9 +453,11 @@ def build_skeleton():
     s.set(9, G + 1, 9, CAMP["pole"]); s.set(9, G + 2, 9, CAMP["pole"]); s.set(9, G + 3, 9, st.lantern(soul=True))
 
     # ---------------------------------------------------------------- weathering
-    sh.snow_cover(s, y_min=G + 1, prob=0.16, seed=3, layers=(1, 2),
+    sh.snow_cover(s, y_min=G + 1, prob=0.14, seed=3, layers=(1, 2),
                   skip=["wool", "quartz", "glass", "ice", "amethyst", "bed", "lectern", "barrel", "concrete_powder",
-                        "deepslate", "campfire", "planks", "table"])
+                        "deepslate", "campfire", "planks", "table", "spruce"])
+    sh.snow_cover(s, x1=22, z1=ZC - 2, x2=59, z2=L - 1, y_min=G + 2, prob=0.38, seed=8, layers=(1, 2),
+                  skip=["bone", "ice", "glass", "amethyst", "deepslate", "wool", "quartz", "spruce", "concrete_powder"])
     sh.texturize(s, SNOW, MIX_SNOW, seed=4, region=(0, G + 1, 0, W - 1, H - 1, L - 1))
     return s.cropped(pad=1)
 
@@ -402,290 +468,304 @@ ARM2 = "minecraft:light_gray_concrete"
 DARK = "minecraft:polished_deepslate"
 DARK2 = "minecraft:deepslate_tiles"
 JOINT = "minecraft:polished_basalt"
-ACC = "minecraft:purple_concrete"
+ACC = "minecraft:purpur_block"
 IRON = "minecraft:iron_block"
-MIX_ARMOUR = [(ARM, 8), ("minecraft:quartz_block", 2)]
+_OPP = {"north": "south", "south": "north", "east": "west", "west": "east"}
 
 
-def limb(s, p1, p2, r, plate=ARM, under=DARK, rings=True):
-    """Armoured limb segment: white armour tube with a dark underside strip and dark joint rings."""
+def vent(s, x, y, z, wall_dir):
+    """Open iron trapdoor lying flat against the wall block in direction `wall_dir` from this cell."""
+    s.set(x, y, z, st.trapdoor("iron", _OPP[wall_dir], "bottom", open=True))
+
+
+def limb(s, p1, p2, r, plate=ARM, under=DARK):
+    """Armoured limb segment: white armour tube with a dark strip along its underside."""
     sh.line(s, p1, p2, plate, radius=r)
     n = max(abs(p2[0] - p1[0]), abs(p2[1] - p1[1]), abs(p2[2] - p1[2]), 1)
-    ri = int(round(r))
+    ri = int(round(r)) + 1
     for i in range(n + 1):
         t = i / n
         x, y, z = (round(p1[k] + (p2[k] - p1[k]) * t) for k in range(3))
-        for dz in range(-ri, ri + 1):                          # dark underside
-            for dy in (-ri, -ri + 1):
-                if s.get(x, y + dy, z + dz) == plate and s.is_air(x, y + dy - 1, z + dz):
-                    s.set(x, y + dy, z + dz, under)
-        if rings and n >= 6 and (i == n // 3 or i == 2 * n // 3):
-            sh.sphere(s, x, y, z, r + 0.3, under)
-            sh.sphere(s, x, y, z, r - 0.7, JOINT)
+        for dx in range(-ri, ri + 1):
+            for dz in range(-ri, ri + 1):
+                for dy in range(-ri, 1):
+                    if s.get(x + dx, y + dy, z + dz) == plate and s.is_air(x + dx, y + dy - 1, z + dz):
+                        s.set(x + dx, y + dy, z + dz, under)
 
 
-def foot_rot(s, cx, cz, hx, hz, ang, y1, y2, block, shrink=0.0):
-    """A rectangle (half sizes hx, hz) rotated by ang around (cx, cz), extruded y1..y2."""
-    c, sn = math.cos(ang), math.sin(ang)
-    pts = []
-    for (ux, uz) in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-        px, pz = ux * (hx - shrink), uz * (hz - shrink)
-        pts.append((cx + px * c - pz * sn, cz + px * sn + pz * c))
-    sh.polygon_prism(s, pts, y1, y2, block)
+def joint(s, x, y, z, r):
+    sh.sphere(s, x, y, z, r, DARK)
+    sh.sphere(s, x, y, z, r - 1.0, JOINT)
 
 
 def build_mech():
-    W, H, L, G = 30, 26, 30, 3
+    W, H, L, G = 34, 32, 30, 3
     s = Schematic(W, H, L, ground=G)
     ZC = 15
     sh.ground_slab(s, G, SNOW, depth=4)
-    # scorched, trampled snow under the wreck (ragged edge) + crater where the cannon dug in
-    sh.ground_disc(s, 15, ZC, 8.5, G, SHIP["scorch"], rim_block=None, seed=8, noise=0.45, depth=1)
+    # scorched, trampled snow under the wreck (ragged edge, grey half-melted rim) + crater where the cannon dug in
+    sh.ground_disc(s, 15, ZC, 9.0, G, SHIP["scorch"], rim_block=None, seed=8, noise=0.4, depth=1)
+    grng = random.Random(15)
     for x in range(W):
         for z in range(L):
             d = math.hypot(x - 15, z - ZC)
-            if 6.5 < d < 10.5 and s.get(x, G, z) == SHIP["scorch"] and sh.value_noise2(x, z, 13, 3.0) < 0.42:
+            if 7.5 < d < 11 and s.get(x, G, z) == SHIP["scorch"] and sh.value_noise2(x, z, 13, 3.0) < 0.3:
                 s.set(x, G, z, SNOW)
-    sh.crater(s, 4, 5, 3.5, G, SHIP["scorch"], SNOW, SNOW, depth=2, rim_height=1, seed=2)
+            elif 8 <= d < 11.5 and s.get(x, G, z) == SNOW and grng.random() < 0.3:
+                s.set(x, G, z, "minecraft:gray_concrete_powder" if grng.random() < 0.5 else "minecraft:tuff")
+    sh.crater(s, 4, 6, 3.5, G, SHIP["scorch"], SNOW, "minecraft:tuff", depth=2, rim_height=1, seed=2)
     sh.texturize(s, SHIP["scorch"], MIX_SCORCH, seed=6)
 
-    HIP_Y = G + 7
-    # ---------------------------------------------------------------- pelvis + hip spheres
-    sh.box(s, 15, HIP_Y - 2, 12, 19, HIP_Y + 1, 18, DARK)
-    sh.box(s, 16, HIP_Y - 2, 13, 18, HIP_Y + 1, 17, DARK2)
+    HIP_Y = G + 8
+    # ---------------------------------------------------------------- pelvis + hip joints
+    sh.box(s, 15, HIP_Y - 1, 13, 19, HIP_Y + 1, 17, DARK)
+    sh.box(s, 16, HIP_Y - 1, 14, 18, HIP_Y + 1, 16, DARK2)
     sh.box(s, 15, HIP_Y + 1, 13, 19, HIP_Y + 1, 17, ARM2)                    # waist plate
-    for z in (10, 20):
-        sh.sphere(s, 17, HIP_Y, z, 1.7, DARK)
-        sh.sphere(s, 17, HIP_Y, z, 0.8, JOINT)
+    for z in (11, 19):
+        joint(s, 17, HIP_Y, z, 1.7)
 
-    # ---------------------------------------------------------------- LEFT leg (south): crouched, foot planted forward
-    hip_l = (17, HIP_Y, 20); knee_l = (9, HIP_Y - 1, 21); ankle_l = (8, G + 3, 21)
-    limb(s, hip_l, knee_l, 2.0)                                              # thigh: forward and slightly down
-    limb(s, knee_l, ankle_l, 1.7, rings=False)                               # shin: down to the foot
-    sh.sphere(s, *knee_l, 2.2, DARK)                                         # knee ball
-    sh.sphere(s, *knee_l, 1.1, JOINT)
-    sh.box(s, knee_l[0] - 3, knee_l[1] - 1, knee_l[2] - 1, knee_l[0] - 3, knee_l[1] + 1, knee_l[2] + 1, "minecraft:quartz_block")   # knee cap
-    s.set(knee_l[0] - 3, knee_l[1], knee_l[2], ACC)
-    # big foot: dark sole, white plate, toe bevels, dark seam, purple toe band
-    sh.box(s, 3, G + 1, 18, 11, G + 1, 24, DARK2)
-    sh.box(s, 4, G + 2, 18, 11, G + 2, 24, ARM)
-    sh.box(s, 7, G + 3, 19, 11, G + 3, 23, ARM)
-    sh.box(s, 6, G + 2, 18, 6, G + 2, 24, DARK)                              # seam between toe and foot plate
-    sh.box(s, 4, G + 2, 21, 5, G + 2, 21, ACC)                               # purple toe stripe
-    for z in range(18, 25):
-        s.set(2, G + 1, z, st.stairs("deepslate_tile", "east"))
-        s.set(3, G + 2, z, st.stairs("quartz", "east"))
-    for z in (18, 24):
-        for x in range(7, 12):
-            s.set(x, G + 3, z, st.stairs("quartz", "south" if z == 18 else "north"))
-    sh.sphere(s, 8, G + 4, 21, 1.9, DARK)                                    # ankle ring
-    sh.sphere(s, 8, G + 4, 21, 0.9, JOINT)
+    # ---------------------------------------------------------------- SOUTH leg: folded, knee in the snow, shin flat behind
+    hipA, kneeA, ankleA = (17, HIP_Y, 20), (14, G + 2, 21), (22, G + 2, 21)
+    limb(s, hipA, kneeA, 1.2)                                                # thigh, nearly vertical
+    limb(s, kneeA, ankleA, 1.1)                                              # shin lying on the scorch
+    joint(s, *kneeA, 1.5)
+    sh.box(s, 22, G + 1, 20, 22, G + 3, 22, DARK)                            # ankle band
+    sh.box(s, 23, G + 1, 20, 23, G + 5, 22, ARM)                             # foot up on its toes: plate ...
+    sh.box(s, 24, G + 1, 20, 24, G + 5, 22, DARK2)                           # ... and sole
+    for z in range(20, 23):
+        s.set(23, G + 6, z, st.stairs("quartz", "east"))                     # rounded heel
+        s.set(24, G + 6, z, st.slab("polished_deepslate"))
+    sh.box(s, 23, G + 3, 20, 23, G + 3, 22, DARK)                            # toe seam
+    s.set(23, G + 2, 21, ACC)                                               # purpur toe stripe
+    s.set(11, G + 1, 23, st.slab("purpur"))                                  # broken purpur panel by the knee
+    s.set(12, G + 1, 24, st.slab("purpur"))
+    s.set(11, G + 1, 24, ACC)
 
-    # ---------------------------------------------------------------- RIGHT leg (north): buckled, knee on the ground, shin flat
-    hip_r = (17, HIP_Y, 10); knee_r = (14, G + 2, 7); ankle_r = (22, G + 2, 5)
-    limb(s, hip_r, knee_r, 2.0)                                              # thigh down to the ground
-    limb(s, knee_r, ankle_r, 2.0)                                            # shin lying flat on the scorch disc
-    sh.sphere(s, *knee_r, 2.0, DARK)                                         # knee ball
-    sh.sphere(s, *knee_r, 1.2, JOINT)
-    # foot turned 45 deg away, half on the snow
-    ang = math.radians(35)
-    foot_rot(s, 24.5, 4.5, 4.0, 3.0, ang, G + 1, G + 1, DARK2)
-    foot_rot(s, 24.5, 4.5, 4.0, 3.0, ang, G + 2, G + 2, ARM, shrink=0.6)
-    foot_rot(s, 24.5, 4.5, 4.0, 3.0, ang, G + 3, G + 3, ARM, shrink=1.6)
-    sh.line(s, (27, G + 2, 2), (28, G + 2, 6), ACC, radius=0.0)               # purple toe band on the far edge
-    sh.sphere(s, 22, G + 3, 5, 1.6, DARK)                                    # ankle
-    sh.sphere(s, 22, G + 3, 5, 0.7, JOINT)
+    # ---------------------------------------------------------------- NORTH leg: planted forward, knee up
+    hipB, kneeB, ankleB = (17, HIP_Y, 10), (9, HIP_Y, 9), (9, G + 4, 9)
+    limb(s, hipB, kneeB, 1.2)                                                # thigh horizontal
+    limb(s, (9, HIP_Y - 1, 9), ankleB, 1.1)                                  # shin vertical
+    joint(s, *kneeB, 2.0)
+    sh.box(s, 6, HIP_Y - 1, 8, 6, HIP_Y + 1, 10, "minecraft:quartz_block")   # knee cap
+    s.set(6, HIP_Y, 9, ACC)
+    sh.box(s, 8, G + 3, 8, 10, G + 3, 10, DARK)                              # ankle band
+    sh.box(s, 5, G + 1, 8, 10, G + 1, 10, DARK2)                             # foot: sole ...
+    sh.box(s, 6, G + 2, 8, 10, G + 2, 10, ARM)                               # ... plate
+    sh.box(s, 8, G + 2, 8, 8, G + 2, 10, DARK)                               # seam
+    s.set(6, G + 2, 9, ACC)
+    for z in range(8, 11):
+        s.set(5, G + 2, z, st.stairs("quartz", "east"))                      # toe bevel
+        s.set(4, G + 1, z, st.stairs("deepslate_tile", "east"))
 
-    # ---------------------------------------------------------------- torso (tilted forward = shifted per layer)
-    TY0 = HIP_Y + 2                                                          # G+9
-    NL = 7
-    halves = [4, 4, 5, 5, 6, 6, 6]
-    torso_boxes = []
-    for dy in range(NL):
+    # ---------------------------------------------------------------- torso: 9 wide x 6 high x 7 deep, tilted forward
+    TY0 = HIP_Y + 2                                                          # G+10
+    halves_z = (11, 19)
+
+    def torso_x(dy):
+        x1 = 14 - dy // 2
+        return x1, x1 + 6
+
+    for dy in range(6):
         y = TY0 + dy
-        shift = round(dy * 0.5)
-        x1, x2 = 14 - shift, 19 - shift
-        half = halves[dy]
-        z1, z2 = ZC - half, ZC + half
-        sh.box(s, x1, y, z1, x2, y, z2, ARM)
-        sh.box(s, x1 + 1, y, z1 + 1, x2 - 1, y, z2 - 1, DARK2)                 # dark inner frame
-        torso_boxes.append((x1, y, z1, x2, z2))
-        if dy == 3:                                                          # dark seam ring (belt) at panel line
-            sh.box(s, x1, y, z1, x2, y, z2, DARK)
-            sh.box(s, x1 + 1, y, z1 + 1, x2 - 1, y, z2 - 1, DARK2)
-        if dy == 0:                                                          # dark underside of the chest
-            sh.box(s, x1, y, z1, x2, y, z2, DARK)
-        # front bevel (stairs) on the two front corners
-        s.set(x1 - 1, y, z1, st.stairs("quartz", "east", "top" if dy % 2 else "bottom"))
-        s.set(x1 - 1, y, z2, st.stairs("quartz", "east", "top" if dy % 2 else "bottom"))
-    # front chest plate: white with a dark-framed purple centre panel
-    for dy in range(1, NL):
-        y = TY0 + dy
-        shift = round(dy * 0.5)
-        x1 = 14 - shift
-        half = halves[dy]
-        for z in range(ZC - half + 1, ZC + half):
-            s.set(x1 - 1, y, z, ARM if dy != 3 else DARK)
-    for dy in (1, 2):
-        y = TY0 + dy
-        x1 = 14 - round(dy * 0.5)
-        for z in range(ZC - 2, ZC + 3):
-            s.set(x1 - 1, y, z, DARK if abs(z - ZC) == 2 else ACC)
-    y = TY0 + 3; x1 = 14 - round(3 * 0.5)
-    for z in range(ZC - 2, ZC + 3):
-        s.set(x1 - 1, y, z, DARK)
-    # side purple panels with a dark inset frame
-    for side in (-1, 1):
-        for dy in (4, 5):
-            y = TY0 + dy
-            shift = round(dy * 0.5)
-            z = ZC + side * halves[dy]
-            for x in range(15 - shift, 19 - shift):
-                s.set(x, y, z, ACC if 16 - shift <= x <= 17 - shift else DARK)
-        y = TY0 + 6
-        shift = 3
-        for x in range(15 - shift, 19 - shift):
-            s.set(x, y, ZC + side * halves[6], DARK)
-    # north breach: one irregular hole in the wall (z = ZC-4) showing the redstone core just behind it
-    sh.box(s, 14, TY0 + 1, ZC - 3, 18, TY0 + 2, ZC - 2, st.redstone_lamp(True))
-    sh.box(s, 14, TY0 + 2, ZC - 4, 18, TY0 + 2, ZC - 4, st.redstone_lamp(True))     # wall is one block further out on this row
-    for x in range(13, 19):
-        for y in range(TY0 + 1, TY0 + 3):
-            z = ZC - halves[y - TY0]
-            n = sh.value_noise2(x * 1.3, y * 1.7, 5, 2.5)
-            if 14 <= x <= 17 or n > 0.55:
-                s.set(x, y, z, AIR)
-    s.set(15, TY0 + 1, ZC - 4, st.end_rod("north"))                          # sparks out of the hole
-    s.set(17, TY0 + 2, ZC - 5, st.end_rod("north"))
-    s.set(13, TY0 + 1, ZC - 5, st.chain("y")); s.set(13, TY0, ZC - 5, st.chain("y"))
-    # side vents
-    for dy in (1, 2):
-        y = TY0 + dy
-        shift = round(dy * 0.5)
-        s.set(17 - shift, y, ZC + halves[dy] + 1, st.trapdoor("iron", "south", "bottom", open=True))
-    # top plate with a dark seam, flush (no bar)
-    yt = TY0 + NL                                                            # G+16
-    xs1 = 14 - 3
-    sh.box(s, xs1, yt, ZC - 6, xs1 + 5, yt, ZC + 6, ARM)
-    sh.box(s, xs1, yt, ZC, xs1 + 5, yt, ZC, DARK)
-    for z in range(ZC - 6, ZC + 7):
-        s.set(xs1 + 6, yt, z, st.stairs("deepslate_tile", "west", "top"))    # back overhang bevel
-    for x in range(xs1, xs1 + 6):
-        s.set(x, yt, ZC - 7, st.stairs("quartz", "south"))
-        s.set(x, yt, ZC + 7, st.stairs("quartz", "north"))
-    # collar behind the cockpit + antenna mast at the back
-    sh.box(s, xs1 + 3, yt + 1, ZC - 3, xs1 + 4, yt + 1, ZC + 3, DARK2)
-    sh.box(s, xs1 + 4, yt + 2, ZC - 2, xs1 + 4, yt + 2, ZC + 2, DARK)
-    mast = (xs1 + 5, yt + 1, ZC)
-    sh.box(s, mast[0], mast[1], mast[2], mast[0], mast[1] + 2, mast[2], DARK)
-    s.set(mast[0], mast[1] + 3, mast[2], st.lightning_rod("up"))
-    s.set(mast[0], mast[1] + 4, mast[2], st.lightning_rod("up"))
-    s.set(mast[0], mast[1] + 2, mast[2] - 1, st.end_rod("north"))
-    s.set(mast[0], mast[1] + 2, mast[2] + 1, st.end_rod("south"))
-    s.set(mast[0] - 1, mast[1] + 1, mast[2], st.end_rod("west"))
+        x1, x2 = torso_x(dy)
+        sh.box(s, x1, y, 11, x2, y, 19, ARM)
+        sh.box(s, x1 + 1, y, 12, x2 - 1, y, 18, DARK2)                       # dark inner frame
+        if dy in (0, 2):                                                     # dark base line + belt seam
+            sh.box(s, x1, y, 11, x2, y, 19, DARK)
+            sh.box(s, x1 + 1, y, 12, x2 - 1, y, 18, DARK2)
+        # front plate one block ahead of the box, with the centre inset
+        fx = x1 - 1
+        for z in range(11, 20):
+            if 13 <= z <= 17 and 1 <= dy <= 4:
+                continue                                                     # inset centre panel
+            s.set(fx, y, z, DARK if dy == 2 or z in (12, 18) else ARM)
+        if dy in (1, 3):                                                     # bevel under each tilt step
+            for z in range(11, 20):
+                if not (13 <= z <= 17 and dy == 1):
+                    s.set(fx - 1, y, z, st.stairs("quartz", "east", "top"))
+    # inset centre panel: dark border, purpur core, stair frame above and below
+    for dy in (1, 4):
+        x1, _ = torso_x(dy)
+        sh.box(s, x1, TY0 + dy, 13, x1, TY0 + dy, 17, DARK)
+    for dy in (2, 3):
+        x1, _ = torso_x(dy)
+        s.set(x1, TY0 + dy, 13, DARK); s.set(x1, TY0 + dy, 17, DARK)
+        sh.box(s, x1, TY0 + dy, 14, x1, TY0 + dy, 16, ACC)
+    x1, _ = torso_x(5)
+    for z in range(13, 18):
+        s.set(x1 - 1, TY0 + 5, z, st.stairs("polished_deepslate", "east", "top"))
+    x1, _ = torso_x(0)
+    for z in range(13, 18):
+        s.set(x1 - 1, TY0, z, st.stairs("polished_deepslate", "east"))
+    # light strip at shoulder height (sea lantern behind light-blue glass) + vent row under it
+    x1, _ = torso_x(5)
+    for z in (11, 12, 18, 19):
+        if z in (12, 18):
+            s.set(x1, TY0 + 5, z, SHIP["light"])
+        s.set(x1 - 1, TY0 + 5, z, SHIP["glass"])
+    x1, _ = torso_x(4)
+    for z in (11, 12, 18, 19):
+        vent(s, x1 - 2, TY0 + 4, z, "east")
+    # side purpur panels with a dark frame, side vents
+    for z in halves_z:
+        for dy in (3, 4):
+            for x in range(14, 19):
+                s.set(x, TY0 + dy, z, ACC if 15 <= x <= 17 else DARK)
+        for x in range(15, 18):
+            s.set(x, TY0 + 5, z, DARK)
+        zz = z - 1 if z == 11 else z + 1
+        for x in (16, 18):
+            vent(s, x, TY0 + 1, zz, "south" if z == 11 else "north")
+    # top plate with a bevelled rim (stairs facing inwards) and a dark centre seam
+    yt = TY0 + 6                                                             # G+16
+    sh.box(s, 11, yt, 11, 18, yt, 19, ARM)
+    for z in range(11, 20):
+        s.set(18, yt, z, st.stairs("quartz", "west"))
+        if z < 13 or z > 17:
+            s.set(11, yt, z, st.stairs("quartz", "east"))
+    for x in range(12, 18):
+        s.set(x, yt, 11, st.stairs("quartz", "south"))
+        s.set(x, yt, 19, st.stairs("quartz", "north"))
+    sh.box(s, 12, yt, 15, 17, yt, 15, DARK)
 
-    # ---------------------------------------------------------------- cockpit pod (lofted along x, cracked glass)
-    cx0 = xs1 - 3
-    yc = yt - 1
-    pod_secs = [(cx0, yc, ZC, 0.9, 1.3), (cx0 + 2, yc, ZC, 1.8, 2.1), (cx0 + 5, yc, ZC, 1.8, 2.1), (cx0 + 6, yc, ZC, 1.4, 1.8)]
-    pod = sh.loft(s, pod_secs, DARK, axis="x")
-    inner = sh.loft_mask(s, pod_secs, "x", shrink=1.0)
-    sh.fill_mask(s, inner, AIR)
-    shell = pod & ~inner
-    rng = np.random.default_rng(3)
-    xs_ = np.arange(s.w)[:, None, None]; ys_ = np.arange(s.h)[None, :, None]
-    glass_zone = shell & (xs_ <= cx0 + 4) & (ys_ >= yc - 1)
-    idx = np.argwhere(glass_zone)
-    for (x, y, z) in idx:
-        r = rng.random()
-        if r < 0.6:
-            s.set(x, y, z, SHIP["glass"])
-        elif r < 0.85:
-            s.set(x, y, z, st.glass_pane("light_blue"))
-        else:
-            s.set(x, y, z, AIR)
-    s.set(cx0 + 4, yc - 1, ZC, SHIP["light"])                                 # cockpit light
-    s.set(cx0 + 3, yc - 1, ZC, st.stairs("polished_deepslate", "west"))       # pilot seat on the pod floor
-    s.set(cx0 + 5, yc - 1, ZC, "minecraft:daylight_detector")                 # console (behind the seat)
-    sh.box(s, cx0 + 1, yc - 2, ZC - 1, cx0 + 4, yc - 2, ZC + 1, ARM2)          # pod cradle (chin) under the front
-    sh.box(s, cx0 + 1, yc - 2, ZC, cx0 + 4, yc - 2, ZC, DARK)
+    # ---------------------------------------------------------------- cockpit: glass canopy on the front, cracked corner
+    sh.box(s, 9, TY0 + 2, 14, 11, TY0 + 2, 16, DARK2)                        # chin support under the floor
+    for z in range(13, 18):
+        s.set(8, TY0 + 2, z, st.stairs("deepslate_tile", "east", "top"))
+    for x in range(9, 12):
+        s.set(x, TY0 + 2, 13, st.stairs("deepslate_tile", "south", "top"))
+        s.set(x, TY0 + 2, 17, st.stairs("deepslate_tile", "north", "top"))
+    sh.box(s, 7, TY0 + 3, 13, 10, TY0 + 3, 17, DARK2)                        # cockpit floor
+    sh.box(s, 7, TY0 + 4, 13, 10, TY0 + 6, 17, SHIP["glass"])                # canopy
+    sh.box(s, 8, TY0 + 4, 14, 10, TY0 + 5, 16, AIR)                          # interior
+    sh.box(s, 7, TY0 + 6, 13, 7, TY0 + 6, 17, AIR)                           # slanted front top
+    for z in (13, 17):
+        sh.box(s, 7, TY0 + 4, z, 7, TY0 + 5, z, DARK)                        # frame posts
+        s.set(8, TY0 + 6, z, DARK)
+    sh.box(s, 10, TY0 + 6, 13, 10, TY0 + 6, 17, DARK)                        # roll bar at the back of the canopy
+    s.set(7, TY0 + 5, 14, AIR)                                              # cracked north-west corner
+    s.set(7, TY0 + 4, 14, st.glass_pane("light_blue"))
+    s.set(7, TY0 + 5, 15, st.glass_pane("light_blue"))
+    s.set(8, TY0 + 6, 14, st.glass_pane("light_blue"))
+    s.set(10, TY0 + 4, 15, st.stairs("polished_deepslate", "east"))          # pilot seat
+    s.set(8, TY0 + 4, 15, "minecraft:daylight_detector")                     # console
+    s.set(8, TY0 + 4, 14, st.redstone_lamp(True))
+    s.set(9, TY0 + 3, 15, SHIP["light"])                                     # floor light under the seat
 
-    # ---------------------------------------------------------------- shoulders (pauldrons)
-    for side in (-1, 1):
-        z = ZC + side * 8
-        sh.ellipsoid(s, xs1 + 2, yt - 2, z, 2.6, 2.0, 2.2, ARM)
-        sh.ellipsoid(s, xs1 + 2, yt - 3, z, 2.6, 1.0, 2.2, DARK)               # dark underside
-        for x in range(xs1, xs1 + 5):                                        # purple stripe over the pauldron
-            if s.get(x, yt - 1, z + side) == ARM:
-                s.set(x, yt - 1, z + side, ACC)
-        sh.sphere(s, xs1 + 2, yt - 3, z - side * 2, 1.4, JOINT)
-    # back: radiator + exhaust stacks with blue smoke
-    sh.box(s, 20, TY0 + 1, ZC - 4, 20, TY0 + 5, ZC + 4, DARK2)
-    for z in range(ZC - 3, ZC + 4, 2):
-        for y in (TY0 + 2, TY0 + 4):
-            s.set(21, y, z, st.trapdoor("iron", "west", "bottom", open=True))
-    for z in (ZC - 3, ZC + 3):
-        sh.cylinder(s, 20, TY0 + 6, z, 1.0, 2, DARK2, axis="y")
-        sh.cylinder(s, 20, TY0 + 9, z, 1.0, 0, IRON, axis="y")                  # iron lip
-        s.set(20, TY0 + 9, z, DARK)
-        s.set(20, TY0 + 10, z, st.campfire(soul=True))
+    # ---------------------------------------------------------------- sensor head: red eye + antenna
+    sh.box(s, 12, yt + 1, 14, 14, yt + 2, 16, DARK)
+    s.set(13, yt, 15, DARK2)
+    s.set(13, yt + 1, 15, SHIP["light"])
+    s.set(12, yt + 1, 15, "minecraft:red_stained_glass")
+    s.set(13, yt + 3, 15, st.end_rod("up"))
+    s.set(13, yt + 4, 15, st.lightning_rod("up"))
+    s.set(14, yt + 3, 15, st.end_rod("up"))
 
-    # ---------------------------------------------------------------- RIGHT arm (north): cannon buried in the crater
-    sh_r = (xs1 + 2, yt - 3, ZC - 9); el_r = (8, yt - 6, ZC - 10)
-    limb(s, sh_r, el_r, 1.8)
-    sh.sphere(s, *el_r, 2.2, DARK)
-    sh.sphere(s, *el_r, 1.1, JOINT)
-    sh.line(s, el_r, (4, G - 1, 5), DARK2, radius=1.5)
-    for i in (3, 6):                                                         # iron barrel rings
-        t = i / 9
-        x, y, z = (round(el_r[k] + ((4, G - 1, 5)[k] - el_r[k]) * t) for k in range(3))
-        sh.sphere(s, x, y, z, 2.0, IRON)
-        sh.sphere(s, x, y, z, 1.3, DARK2)
-    sh.box(s, 9, yt - 5, ZC - 12, 11, yt - 4, ZC - 11, ARM)                    # forearm plate
+    # ---------------------------------------------------------------- shoulders: south pauldron, north one torn off
+    SJ_Y = TY0 + 3                                                           # shoulder joint height (G+13)
+    joint(s, 14, SJ_Y, 21, 1.6)
+    sh.box(s, 12, TY0 + 4, 20, 17, yt, 22, ARM)                              # pauldron block
+    sh.box(s, 12, TY0 + 4, 20, 17, TY0 + 4, 22, DARK)
+    for x in range(12, 18):
+        s.set(x, yt, 22, st.stairs("quartz", "north"))                       # rounded outer edge
+        s.set(x, TY0 + 5, 22, ACC if 13 <= x <= 16 else DARK)                # purpur stripe
+    s.set(11, TY0 + 5, 21, st.stairs("quartz", "east")); s.set(11, yt, 21, st.stairs("quartz", "east"))
+    s.set(18, TY0 + 5, 21, st.stairs("quartz", "west")); s.set(18, yt, 21, st.stairs("quartz", "west"))
+    joint(s, 14, SJ_Y, 9, 1.6)
+    sh.box(s, 13, TY0 + 4, 7, 15, TY0 + 4, 10, DARK2)                        # bare mounting bracket
+    sh.box(s, 13, TY0 + 5, 8, 15, TY0 + 5, 10, DARK)
+    # the torn-off pauldron lying in the snow to the north-east
+    sh.box(s, 24, G + 1, 2, 27, G + 1, 4, ARM)
+    sh.box(s, 25, G + 2, 2, 26, G + 2, 4, ARM)
+    sh.box(s, 25, G + 2, 3, 26, G + 2, 3, ACC)
+    for z in range(2, 5):
+        s.set(24, G + 2, z, st.stairs("quartz", "east")); s.set(27, G + 2, z, st.stairs("quartz", "west"))
 
-    # ---------------------------------------------------------------- LEFT arm (south): reaching up
-    sh_l = (xs1 + 2, yt - 3, ZC + 9); el_l = (9, yt - 1, ZC + 11); wr_l = (7, yt + 4, ZC + 11)
-    limb(s, sh_l, el_l, 1.8)
-    sh.sphere(s, *el_l, 2.2, DARK)
-    sh.sphere(s, *el_l, 1.1, JOINT)
-    limb(s, el_l, wr_l, 1.6, rings=False)
-    sh.sphere(s, *wr_l, 1.3, DARK)
-    for (dx, dz) in ((-1, -1), (-1, 1), (1, 0)):                              # hand: 3 fingers + glow
-        s.set(wr_l[0] + dx, wr_l[1] + 2, wr_l[2] + dz, DARK)
-        s.set(wr_l[0] + dx, wr_l[1] + 3, wr_l[2] + dz, st.end_rod("up"))
-    s.set(wr_l[0], wr_l[1] + 2, wr_l[2], SHIP["light"])
-    s.set(wr_l[0], wr_l[1] + 1, wr_l[2], "minecraft:cyan_stained_glass")
+    # ---------------------------------------------------------------- back: radiator, exhaust stacks with blue smoke
+    for z in range(14, 17):
+        vent(s, 19, TY0 + 4, z, "west"); vent(s, 19, TY0 + 5, z, "west")
+    for z in (13, 17):
+        sh.cylinder(s, 18, TY0 + 4, z, 1.0, 4, DARK2, axis="y")
+        sh.cylinder(s, 18, TY0 + 8, z, 1.0, 0, IRON, axis="y")               # iron lip
+        s.set(18, TY0 + 8, z, DARK)
+        s.set(18, TY0 + 9, z, st.campfire(soul=True))
 
-    # ---------------------------------------------------------------- texture (large plates only) + structure lines
-    for (x1, y, z1, x2, z2) in torso_boxes:
-        sh.texturize(s, ARM, MIX_ARMOUR, seed=9 + y, region=(x1 - 1, y, z1, x2, y, z2))
-    sh.texturize(s, ARM, MIX_ARMOUR, seed=21, region=(3, G + 1, 18, 11, G + 3, 24))
-    sh.texturize(s, ARM, MIX_ARMOUR, seed=22, region=(19, G + 1, 0, 29, G + 3, 9))
+    # ---------------------------------------------------------------- NORTH arm: cannon dug into the crater
+    el_n = (9, G + 9, 6)
+    limb(s, (14, SJ_Y, 9), el_n, 1.1)
+    joint(s, *el_n, 1.8)
+    muzzle = (3, G + 1, 5)
+    sh.line(s, el_n, muzzle, ARM2, radius=1.6)                              # barrel, 5 wide
+    for t, blk, rr in ((0.3, DARK, 1.9), (0.52, ACC, 1.6), (0.74, DARK, 1.9)):   # dark rings + thin purpur band
+        x, y, z = (round(el_n[k] + (muzzle[k] - el_n[k]) * t) for k in range(3))
+        sh.sphere(s, x, y, z, rr, blk)
+        sh.sphere(s, x, y, z, 1.1, ARM2)
+    sh.sphere(s, *muzzle, 1.9, DARK2)                                        # muzzle ring in the crater
+    sh.sphere(s, *muzzle, 1.0, "minecraft:coal_block")
+    sh.texturize(s, ARM2, [(ARM2, 7), ("minecraft:polished_andesite", 2), ("minecraft:smooth_stone", 1)], seed=17)
+    sh.box(s, 8, G + 9, 4, 10, G + 9, 8, ARM)                                # forearm plate over the elbow
+    sh.box(s, 8, G + 9, 6, 10, G + 9, 6, ACC)
+
+    # ---------------------------------------------------------------- SOUTH arm: raised, bent, 3-finger claw
+    el_s = (14, SJ_Y + 1, 26)
+    limb(s, (14, SJ_Y, 21), el_s, 1.1)                                       # upper arm out to the side
+    joint(s, *el_s, 1.8)
+    wr = (13, SJ_Y + 8, 26)
+    limb(s, el_s, wr, 1.5)                                                   # heavy forearm / gauntlet
+    sh.sphere(s, *wr, 1.7, IRON)                                             # iron wrist ring
+    sh.sphere(s, *wr, 0.9, DARK)
+    palm_y = wr[1] + 2
+    sh.box(s, 12, palm_y, 25, 14, palm_y, 27, DARK)                          # palm
+    s.set(13, palm_y, 26, SHIP["light"])
+    s.set(13, palm_y + 1, 26, st.end_rod("up"))                              # sparks between the fingers
+    fingers = (((12, palm_y + 1, 26), (9, palm_y + 4, 26), (10, palm_y + 5, 26), "east"),
+               ((14, palm_y + 1, 27), (17, palm_y + 4, 28), (16, palm_y + 5, 28), "west"),
+               ((14, palm_y + 1, 25), (17, palm_y + 4, 23), (16, palm_y + 5, 23), "west"))
+    for (a, b, c, fc) in fingers:
+        cells = line6(a, b)
+        for j, (x, y, z) in enumerate(cells):
+            s.set(x, y, z, DARK if j < len(cells) // 2 else ARM)
+        for (x, y, z) in line6(b, c)[1:]:
+            s.set(x, y, z, ARM)
+        s.set(c[0], c[1] + 1, c[2], st.trapdoor("iron", fc, "bottom", open=True))   # claw tip
+    s.set(11, palm_y + 1, 27, st.end_rod("up"))
+    s.set(15, palm_y + 1, 26, st.end_rod("up"))
+
+    # ---------------------------------------------------------------- armour texture
+    sh.texturize(s, ARM, MIX_WHITE, seed=9)
 
     # ---------------------------------------------------------------- cables, sparks, debris, story
-    for (x, z, top, bot) in ((13, ZC - 1, TY0 - 1, G + 1), (12, ZC + 3, TY0, G + 4), (19, ZC - 6, TY0 + 1, G + 1),
-                             (xs1 + 1, ZC - 11, yt - 5, G + 1), (11, ZC + 8, yt - 4, G + 1)):
+    hangs = ((12, 22, TY0 + 3, G + 7), (16, 22, TY0 + 3, G + 9), (13, 7, TY0 + 3, G + 5), (15, 7, TY0 + 3, G + 8))
+    for (x, z, top, bot) in hangs:
         for y in range(bot, top + 1):
             s.set_if_air(x, y, z, st.chain("y"))
-    for x in range(12, 16):                                                  # loose cable on the snow
-        s.set_if_air(x, G + 1, ZC - 10, st.chain("x"))
+    s.set(12, G + 6, 22, st.lightning_rod("down"))                           # torn connector at the end of a cable
+    s.set(13, G + 4, 7, st.end_rod("down"))
+    for x in range(4, 10):                                                   # cable dragged from the cannon
+        s.set_if_air(x, G + 1, 3, st.chain("x"))
+    s.set(10, G + 1, 3, st.lightning_rod("east"))
     plates = [st.slab("quartz"), st.slab("quartz", "top"), st.trapdoor("iron", "north", "bottom", open=True),
-              st.trapdoor("iron", "east", "bottom", open=True), st.slab("polished_deepslate"), st.trapdoor("iron", "south", "top")]
+              st.stairs("quartz", "west"), st.slab("polished_deepslate"), st.trapdoor("iron", "south", "top")]
     drng = random.Random(5)
-    for _ in range(9):                                                       # armour plates in pairs, half-sunk
+    for _ in range(10):                                                      # armour plates in pairs, half-sunk
         x, z = drng.randint(1, W - 3), drng.randint(1, L - 3)
-        if 8 < math.hypot(x - 15, z - ZC) and s.top_y(x, z) == G:
+        if 9 < math.hypot(x - 15, z - ZC) and s.top_y(x, z) == G and s.is_air(x + 1, G + 1, z):
             p = drng.choice(plates)
             s.set(x, G + 1, z, p)
             s.set(x + drng.choice((0, 1)), G + 1, z + drng.choice((-1, 1)), drng.choice(plates))
             s.set(x - 1, G + 1, z, st.snow_layer(2))
-    s.add_chest(9, G + 1, ZC - 3, "west", "minecraft:chests/pillager_outpost")   # pilot's survival kit
-    s.add_sign(9, G + 1, ZC - 2, "minecraft:warped_sign[rotation=12]", ["UNITE K-7", "genou HS", "pilote ejecte", "sud"])
-    s.set(9, G, ZC - 2, SHIP["scorch"])
-    s.set(9, G + 1, ZC + 7, st.campfire(soul=True))
+    sh.scatter(s, 3, 18, 11, 26, ["minecraft:blackstone_slab", "minecraft:polished_blackstone_slab",
+                                  "minecraft:cobbled_deepslate_slab", "minecraft:basalt"], 6, seed=21, on=["snow_block", "concrete_powder"])
+    s.add_chest(12, G + 1, 12, "west", "minecraft:chests/pillager_outpost")   # pilot's survival kit under the cockpit
+    s.add_sign(11, G + 1, 12, "minecraft:warped_sign[rotation=12]", ["UNITE K-7", "genou HS", "pilote ejecte", "sud"])
+    s.set(11, G, 12, SHIP["scorch"])
+    s.set(10, G + 1, 19, st.campfire(soul=True))
 
-    sh.snow_cover(s, y_min=G + 2, prob=0.3, seed=4, layers=(1, 2),
-                  skip=["glass", "rod", "campfire", "lamp", "chain", "slab", "purple", "trapdoor", "deepslate", "basalt", "iron"])
+    sh.snow_cover(s, y_min=G + 9, prob=0.3, seed=4, layers=(1, 2),
+                  skip=["glass", "rod", "campfire", "lamp", "chain", "purpur", "trapdoor", "deepslate", "basalt", "iron", "red_"])
+    sh.snow_cover(s, y_min=G + 1, prob=0.1, seed=5, layers=(1, 2),
+                  skip=["glass", "rod", "campfire", "lamp", "chain", "purpur", "trapdoor", "deepslate", "basalt", "iron",
+                        "tuff", "powder", "blackstone", "coal"])
     return s.cropped(pad=1)
 
 

@@ -1,5 +1,6 @@
-"""Villain city command spire: tapered octagonal blackstone tower on a sculk plaza, 2 cantilevered ring decks,
-a 4-arm cross landing runway on struts, glass command deck and a tall obsidian needle crown with 4 sloped blades.
+"""Villain city command spire: tapered octagonal blackstone tower on a sculk plaza, 2 wide cantilevered ring decks
+with corner turrets, a 4-arm cross landing runway on struts, glass command deck and a crown of 4 thin sloped fins
+around a tall obsidian needle antenna.
 Full interior (lobby/throne, prison, servers, armoury, quarters, hangar, reactor, command deck) linked by an
 open lift shaft with a ladder."""
 from tools.schem import Schematic
@@ -7,7 +8,7 @@ from tools import shapes as sh, states as st
 from tools.palette import VILLAIN as V
 import numpy as np
 
-W, H, L, G = 34, 91, 34, 2
+W, H, L, G = 34, 97, 34, 2
 C = 16.5                      # centre between x=16 and x=17 (symmetric even footprint)
 CHAMFER = 1.5                 # octagon: dx + dz <= hw * CHAMFER (wide flat faces for the neon strips)
 
@@ -25,10 +26,12 @@ BASALT = V["metal"]
 WALL = V["railing"]           # polished blackstone brick wall
 SIGN = "minecraft:warped_wall_sign"
 MIX_BODY = [(PBB, 7), (PD, 2), ("minecraft:deepslate_bricks", 1)]     # visible close-shade gradient
+BARS = V["bars"]
 
 # ---- vertical programme (floor y of every level) --------------------------------------------------------------
 FLOORS = [5, 13, 20, 27, 35, 41, 47, 53, 61]
-DECKS = {27: 3, 41: 6, 53: 3}          # deck floor y -> cantilever width (41 = cross runway)
+DECKS = {27: 5, 41: 6, 53: 4}          # deck floor y -> cantilever width (41 = cross runway)
+SETBACKS = (13, 20, 35, 47)            # floors where the body steps in by one block
 PAD = 41
 CMD = 61                               # command deck floor
 OPP = {"north": "south", "south": "north", "east": "west", "west": "east"}
@@ -137,10 +140,11 @@ def build():
 
     # ---------------------------------------------------------------- plaza (flush with the snow at y = G)
     plaza = (DX <= 14.5) & (DZ <= 14.5)
+    fill2d(s, plaza, G - 1, DT)                                 # buried foundation row (sits IN the snow)
     fill2d(s, plaza, G, PD)
-    fill2d(s, plaza & ~octa(12.5), G, DT)                       # border strip + corner triangles
+    fill2d(s, plaza & ~octa(13.5), G, DT)                       # border strip + corner triangles
     # sculk gardens in the four corner triangles, with 1-2 blocks of relief
-    garden = plaza & ~octa(12.5) & (DX + DZ > 19.5)
+    garden = plaza & ~octa(13.5) & (DX + DZ > 20.5)
     rng = np.random.default_rng(7)
     for x, z in zip(*np.nonzero(garden)):
         x, z = int(x), int(z)
@@ -170,15 +174,17 @@ def build():
                    (29, 25), (25, 29), (27, 27)):
         s.set(x, G, z, V["sculk_glow"])
         s.set(x, G + 1, z, "minecraft:sculk_shrieker")
-    # light strip: sea lanterns in the outermost plaza ring every 3 blocks
+    # light strip: sea lanterns sunk under purple glass in the outermost plaza ring every 3 blocks (no bare cyan)
     for x in range(2, 32):
         for z in (2, 31):
             if (x - 2) % 3 == 0:
-                s.set(x, G, z, LANT)
+                s.set(x, G - 1, z, LANT)
+                s.set(x, G, z, GLASS)
     for z in range(2, 32):
         for x in (2, 31):
             if (z - 2) % 3 == 0:
-                s.set(x, G, z, LANT)
+                s.set(x, G - 1, z, LANT)
+                s.set(x, G, z, GLASS)
     # kerb bevel around the plaza (y = G+1, outside the plaza)
     for x in range(1, 33):
         s.set(x, G + 1, 1, st.stairs(V["wall_stairs_alt"], "south"))
@@ -222,25 +228,35 @@ def build():
         s.set(x, G - 1, z, LANT)
         s.set(x, G, z, NEON)
 
-    # ---------------------------------------------------------------- pedestal: two stepped octagons
-    fill2d(s, octa(11.5), 3, PBB)
-    stair_ring(s, ring(11.5, 12.5), 3, V["wall_stairs"])
-    fill2d(s, octa(10.5), 4, PD)
-    stair_ring(s, ring(10.5, 11.5), 4, V["wall_stairs"])
-    # glowing ring at the foot of the tower: sea lantern under purple glass
-    fill2d(s, ring(9.5, 10.5), 3, LANT)
-    fill2d(s, ring(9.5, 10.5), 4, GLASS)
-    # amethyst accents on the diagonal cells of the lower step
-    fill2d(s, ring(11.5, 12.5) & (np.abs(DX - DZ) <= 1.0), 3, AME)
+    # ---------------------------------------------------------------- pedestal: two stepped octagons (2 high, 27 wide)
+    # step 1 (G+1): blackstone plinth with a deepslate-tile trim row and a stair run all round
+    fill2d(s, octa(11.5), G + 1, PBB)
+    fill2d(s, ring(11.5, 12.5), G + 1, DT)
+    stair_ring(s, ring(12.5, 13.5), G + 1, V["wall_stairs"])
+    # step 2 (G+2): polished deepslate terrace, second stair run -> continuous 2-run ramp on every face
+    fill2d(s, octa(10.5), G + 2, PD)
+    fill2d(s, ring(10.5, 11.5), G + 2, DT)
+    stair_ring(s, ring(11.5, 12.5), G + 2, V["wall_stairs"])
+    # glowing ring at the foot of the tower: sea lantern sunk in the plinth under flush purple glass
+    fill2d(s, ring(9.5, 10.5), G + 1, LANT)
+    fill2d(s, ring(9.5, 10.5), G + 2, GLASS)
+    # amethyst accents framed in the trim row on the diagonal faces of the lower step
+    fill2d(s, ring(11.5, 12.5) & (np.abs(DX - DZ) <= 1.0), G + 1, AME)
+    # ramp landings: a 2-wide deepslate-tile runner on the 4 faces (aligned with the approach paths)
+    for y, hw_ in ((G + 1, 13.5), (G + 2, 12.5)):
+        stair_ring(s, ring(hw_ - 1, hw_) & ((DX <= 1.5) | (DZ <= 1.5)), y, V["wall_stairs_alt"])
 
     # ---------------------------------------------------------------- body shell y=5..60
     for y in range(5, CMD):
         hw = hw_at(y)
         fill2d(s, octa(hw), y, PBB)
         fill2d(s, inner(hw), y, "air")
-    # ledge bevel where the body steps in -> stairs sloping toward the wall
-    for y in (13, 20, 35, 47):
-        stair_ring(s, ring(hw_at(y), hw_at(y - 1)), y, V["wall_stairs"])
+    # setbacks: 2-row moulded chamfer instead of a flat shelf - an upside-down stair ring on the wider section's
+    # top row (undercut) and a stair ring sloping into the narrower wall above it
+    for y in SETBACKS:
+        hw, hwb = hw_at(y), hw_at(y - 1)
+        stair_ring(s, ring(hwb - 1, hwb), y - 1, V["wall_stairs"], "top")
+        stair_ring(s, ring(hw, hwb), y, V["wall_stairs"])
 
     # ---------------------------------------------------------------- lift shaft core (obsidian pillars)
     for y in range(5, CMD + 7):
@@ -256,27 +272,31 @@ def build():
             fill2d(s, inner(hw), f, PD)                         # interior floor
             fill2d(s, ring(hw - 1, hw), f, DT)                  # outer trim line at floor level
         if f > 5:
-            hwb = hw_at(f - 1)                                  # neon band = ceiling row of the level below
-            fill2d(s, ring(hwb - 1, hwb), f - 1, GLASS)
-            fill2d(s, octa(hwb - 1) & ~inner(hwb), f - 1, LANT)
-    # vertical neon strips (2 wide, purple/magenta alternating) + inset deepslate rib between them, on the 4 faces
+            hwb = hw_at(f - 1)                                  # neon band = top row of the level below
+            yb = f - 2 if f in SETBACKS else f - 1              # (one row lower under the moulded setbacks)
+            fill2d(s, ring(hwb - 1, hwb), yb, GLASS)
+            fill2d(s, octa(hwb - 1) & ~inner(hwb), yb, LANT)
+    # vertical neon strips (2 wide: magenta outer / purple inner, one colour per strip, continuous between the
+    # floor bands) + inset deepslate rib between them, on the 4 faces
     for y in range(6, CMD):
         hw = hw_at(y)
         body = octa(hw)
         panel = (y not in FLOORS) and (y + 1 not in FLOORS)
-        col = NEON if ((y - 6) // 3) % 2 == 0 else GLASS
         for a in (14, 15, 16, 17, 18, 19):
             strip = a in (14, 15, 18, 19)
+            col = NEON if a in (14, 19) else GLASS
             zs = np.nonzero(body[a, :])[0]
             zmin, zmax = int(zs.min()), int(zs.max())
             xs_ = np.nonzero(body[:, a])[0]
             xmin, xmax = int(xs_.min()), int(xs_.max())
             for (xo, zo, xi, zi) in ((a, zmax, a, zmax - 1), (a, zmin, a, zmin + 1),
                                      (xmax, a, xmax - 1, a), (xmin, a, xmin + 1, a)):
+                if not panel:
+                    continue                                    # floor trim rows / bands stay continuous
                 if strip:
                     s.set(xo, y, zo, col)
                     s.set(xi, y, zi, LANT)
-                elif panel:
+                else:
                     s.set(xo, y, zo, "air")                     # 1-block inset
                     s.set(xi, y, zi, DT)
     # iron trapdoor vent rows at mid-height of each wall section, on the diagonal faces
@@ -306,6 +326,7 @@ def build():
             # underside: lantern + neon rings near the body, blackstone plate, bevelled free edges, 2-step corbel
             bevel(s, arm, d - 1, V["wall_stairs"], "top", support=body, fill=PBB)
             fill2d(s, ring(hwb, hwb + 1) & arm, d - 1, LANT)
+            fill2d(s, ring(hwb, hwb + 1) & arm & ((DX == 3.5) | (DZ == 3.5)), d - 1, NEON)   # no bare side faces
             fill2d(s, ring(hwb + 1, hwb + 2) & arm, d - 1, NEON)
             bevel(s, cross(hwb, hwb + 3), d - 2, V["wall_stairs"], "top", support=body, fill=PBB)
             stair_ring(s, cross(hwb, hwb + 1), d - 3, V["wall_stairs"], "top")
@@ -318,13 +339,16 @@ def build():
             thr = ring(outer - 2, outer - 1) & arm & ((DX <= 2.5) | (DZ <= 2.5))
             fill2d(s, thr, d - 1, LANT)
             fill2d(s, thr, d, NEON)
+            for x, z in zip(*np.nonzero(side | thr)):           # cap the underside faces with purple glass
+                s.set_if_air(int(x), d - 2, int(z), GLASS)
             # railing along the arm sides (tips stay open for approach), end rods at the ends
             rail = ring(hw, outer - 1) & (((DX == 3.5) & (DZ > 3.5)) | ((DZ == 3.5) & (DX > 3.5)))
             fill2d(s, rail, d + 1, WALL)
             rail_end = rail & ((DX == outer - 1) | (DZ == outer - 1))
             fill2d(s, rail_end, d + 2, st.end_rod("up"))
-            # soul campfires on the tip corners (blue landing beacons)
-            fill2d(s, arm & (DX + DZ == outer + 3.5), d + 1, st.campfire(soul=True))
+            # crystal beacons on the tip corners (wall post + amethyst cluster: purple, not cyan)
+            fill2d(s, arm & (DX + DZ == outer + 3.5), d + 1, WALL)
+            fill2d(s, arm & (DX + DZ == outer + 3.5), d + 2, st.facing_block("minecraft:amethyst_cluster", "up"))
             # angled struts from the body to the arm tips (2 per arm, polished basalt)
             for a in ("north", "south", "east", "west"):
                 for u in (-3.5, 3.5):
@@ -338,20 +362,36 @@ def build():
             s.add_sign(19, d + 2, 24, SIGN + "[facing=south]", ["PISTE 7", "atterrissage", "autorise", "code violet"])
             chain_mask = ring(hwb + 1, hwb + 2) & ((DX == 0.5) | (DZ == 0.5))
         else:
+            # walkway (ext-1 wide) with a deepslate-tile edge row and 4 corner turrets filling the octagon notches
+            t = outer - 3.0 if d == 27 else outer - 2.0        # turret half-width (DX == DZ == t is just outside)
+            turret = (DX == t) & (DZ == t)
             fill2d(s, ring(hw, outer - 1), d, PD)
-            fill2d(s, ring(outer - 1, outer), d, DT)
+            fill2d(s, ring(outer - 1, outer) | turret, d, DT)
+            # underside: lantern collar (capped by glass below), neon ring, 2-step corbel with bevelled edges
             fill2d(s, ring(hwb, hwb + 1), d - 1, LANT)
             fill2d(s, ring(hwb + 1, hwb + 2), d - 1, NEON)
-            stair_ring(s, ring(hwb + 2, outer), d - 1, V["wall_stairs"], "top")
+            fill2d(s, ring(hwb + 2, outer - 1) | turret, d - 1, PBB)
+            stair_ring(s, ring(outer - 1, outer), d - 1, V["wall_stairs"], "top")
+            fill2d(s, ring(hwb, hwb + 1), d - 2, GLASS)
+            fill2d(s, ring(hwb + 1, outer - 2), d - 2, PBB)
+            stair_ring(s, ring(outer - 2, outer - 1), d - 2, V["wall_stairs"], "top")
+            # railing on the edge row; turret posts with end rods and purple banners give the silhouette teeth
             rail = ring(outer - 1, outer)
             fill2d(s, rail, d + 1, WALL)
-            fill2d(s, rail & ((DX == DZ) | (DX == 0.5) | (DZ == 0.5)), d + 2, st.end_rod("up"))
-            chain_mask = ring(hwb + 1, hwb + 2) & ((DX == DZ) | (DX == 0.5) | (DZ == 0.5))
-        # chains hanging from the underside neon ring with soul lanterns
+            fill2d(s, rail & ((DX == 0.5) | (DZ == 0.5)), d + 2, st.end_rod("up"))
+            for x, z in zip(*np.nonzero(turret)):
+                x, z = int(x), int(z)
+                s.set(x, d + 1, z, WALL)
+                s.set(x, d + 2, z, WALL)
+                s.set(x, d + 3, z, st.end_rod("up"))
+                bx = x + (1 if x > C else -1)                   # banner hung on the turret post, outward (x side)
+                s.set(bx, d + 2, z, st.wall_banner("purple", "east" if x > C else "west"))
+            chain_mask = ring(hwb + 2, hwb + 3) & ((DX == DZ) | (DX == 0.5) | (DZ == 0.5))
+        # chains hanging from the underside, ending in amethyst-cluster pendants (purple crystal lights)
         for x, z in zip(*np.nonzero(chain_mask)):
-            for k in range(1, 4):
-                s.set(int(x), d - 1 - k, int(z), st.chain("y"))
-            s.set(int(x), d - 5, int(z), st.lantern(soul=True, hanging=True))
+            for k in range(3, 5):
+                s.set(int(x), d - k, int(z), st.chain("y"))
+            s.set(int(x), d - 5, int(z), st.facing_block("minecraft:amethyst_cluster", "down"))
         # doorways through the wall on the 4 faces + crying obsidian frames
         wall_m = body & ~inner(hw)
         for (x1, x2, z1, z2) in ((16, 17, 0, 15), (16, 17, 18, 33), (0, 15, 16, 17), (18, 33, 16, 17)):
@@ -379,6 +419,7 @@ def build():
     fill2d(s, octa(8.5), CMD, PD)
     fill2d(s, ring(7.5, 8.5), CMD, DT)
     fill2d(s, ring(5.5, 6.5), CMD - 1, LANT)
+    fill2d(s, ring(5.5, 6.5), CMD - 2, GLASS)                                # glass collar caps the lantern ring
     fill2d(s, ring(6.5, 7.5), CMD - 1, NEON)
     stair_ring(s, ring(7.5, 8.5), CMD - 1, V["wall_stairs"], "top")
     wall = ring(7.5, 8.5)
@@ -416,37 +457,56 @@ def build():
     s.add_chest(13, CMD + 1, 12, "south", "minecraft:chests/end_city_treasure")
     s.add_sign(20, CMD + 2, 12, SIGN + "[facing=south]", ["PONT DE", "COMMANDEMENT", "acces niveau 5", "seulement"])
 
-    # ---------------------------------------------------------------- crown: tall obsidian needle + 4 sloped blades
-    base = CMD + 7
-    sh.box(s, 15, base, 15, 18, base + 6, 18, OBS)                    # 4x4 core
+    # ---------------------------------------------------------------- crown: 4 thin sloped fins + tall needle antenna
+    base = CMD + 7                                                     # roof plate level
+    sh.box(s, 15, base, 15, 18, base + 7, 18, OBS)                    # 4x4 core, 8 high
     for y in (base + 2, base + 5):
         sh.box(s, 15, y, 15, 18, y, 18, CRY)
-    stair_ring(s, ring(0.5, 1.5) & ~cross(0.5, 1.5, 0.5), base + 7, V["wall_stairs"])   # corner chamfer 4x4 -> 2x2
-    sh.box(s, 16, base + 7, 16, 17, base + 20, 17, OBS)               # 2x2 needle
-    for y in (base + 9, base + 12, base + 15, base + 18):
+    NEEDLE_TOP = base + 26
+    sh.box(s, 16, base + 8, 16, 17, NEEDLE_TOP, 17, OBS)              # 2x2 needle: the tallest, thinnest element
+    for y in range(base + 10, NEEDLE_TOP, 3):
         sh.box(s, 16, y, 16, 17, y, 17, CRY)
     for (x, z) in ((16, 16), (17, 16), (16, 17), (17, 17)):
-        s.set(x, base + 21, z, st.pointed_dripstone("up", "frustum"))
-        s.set(x, base + 22, z, st.pointed_dripstone("up", "tip"))
+        s.set(x, NEEDLE_TOP + 1, z, st.pointed_dripstone("up", "frustum"))
+        s.set(x, NEEDLE_TOP + 2, z, st.pointed_dripstone("up", "tip"))
+    # fins: 1 block thick, pinwheel (4-fold rotational symmetry) around the even 2x2 needle; each fin is a sloped
+    # strip (stair / crying-obsidian glow line / brick / upside-down stair) with AIR beneath it, rooted in an
+    # obsidian column fused to the needle and propped by thin basalt struts at d = 4 and 7
+    FINS = {"north": lambda d: (16, 16 - d), "east": lambda d: (17 + d, 16),
+            "south": lambda d: (17, 17 + d), "west": lambda d: (16 - d, 17)}
 
-    def blade_top(d):
-        return base + 14 - 2 * (d - 2)                                # steep: d=2 -> +14 ... d=8 -> +2
+    def fin_top(d):
+        return base + 15 - 2 * (d - 2)                                 # d=2 -> +15 ... d=8 -> +3
 
-    for d in range(1, 9):                                              # distance from the axis (cells at 16.5 +- d)
-        top = blade_top(max(d, 2))
-        for (x, z) in ((16, 16 - d), (17, 16 - d), (16, 17 + d), (17, 17 + d),
-                       (16 - d, 16), (16 - d, 17), (17 + d, 16), (17 + d, 17)):
-            if d == 1:                                                 # blade root fused into the core
-                sh.box(s, x, base, z, x, top, z, OBS)
-                continue
-            for y in range(base, top):
-                s.set(x, y, z, PBB)
-            s.set(x, top, z, st.stairs(V["wall_stairs"], toward_centre(x, z)))   # sloped blade edge
-            if 3 <= d <= 7:
-                s.set(x, top - 1, z, CRY)                              # glow line under the edge
-            if d == 8:
+    roots = {f(1) for f in FINS.values()}
+    for fin in FINS.values():
+        x, z = fin(1)                                                  # root column against the needle
+        sh.box(s, x, base + 8, z, x, fin_top(2), z, OBS)
+        s.set(x, base + 12, z, CRY)
+        for d in range(2, 9):
+            x, z = fin(d)
+            top = fin_top(d)
+            if d == 8:                                                 # tip: deepslate cap + lightning rod
+                sh.box(s, x, base + 1, z, x, top - 1, z, PBB)
                 s.set(x, top, z, DT)
                 s.set(x, top + 1, z, st.lightning_rod("up"))
+                continue
+            s.set(x, top, z, st.stairs(V["wall_stairs"], toward_centre(x, z)))      # sloped top edge
+            s.set(x, top - 1, z, CRY)                                                 # glow line under the edge
+            s.set(x, top - 2, z, PBB)
+            under = top - 3 if d <= 4 else top - 2                                   # fin tapers toward the tip
+            if d <= 4:
+                s.set(x, under, z, st.stairs(V["wall_stairs"], outward(x, z), "top"))  # bevelled underside
+            if d in (4, 7):
+                for y in range(base + 1, under):
+                    s.set(x, y, z, st.log(BASALT, "y"))                               # thin strut
+    # antenna collar: iron bars ring around the needle foot, lightning rods on the 4 corners
+    for y in (base + 8, base + 9):
+        for x, z in zip(*np.nonzero(ring(0.5, 1.5))):
+            if (int(x), int(z)) not in roots:
+                s.set(int(x), y, int(z), BARS)
+    for (x, z) in ((15, 15), (18, 15), (15, 18), (18, 18)):
+        s.set(x, base + 10, z, st.lightning_rod("up"))
 
     # ---------------------------------------------------------------- lift shaft interior: ladder + bars + doors
     for y in range(6, CMD + 6):
@@ -467,7 +527,7 @@ def build():
             for y in (f + 1, f + 2):
                 s.set(x, y, 18, "air")                             # shaft doorway
         for (x, z) in ((14, 14), (19, 14), (14, 19), (19, 19)):
-            s.set(x, f, z, LANT)
+            s.set(x, f, z, st.redstone_lamp(True) if f == CMD else LANT)   # no cyan behind the command glass
     for y in range(8, CMD, 6):
         s.set(15, y, 16, st.end_rod("east")); s.set(18, y, 17, st.end_rod("west"))
 
