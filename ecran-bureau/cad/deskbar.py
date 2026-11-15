@@ -30,13 +30,20 @@ PANEL_T_EDGE = 3.0        # épaisseur sur les bords (typique)
 PANEL_T_MAX = 5.3         # épaisseur maxi (zone carte électronique, en bas)
 ACTIVE_W = 309.31         # zone d'image
 ACTIVE_H = 82.97
-BORDER_TOP = 3.15         # bord noir au-dessus de l'image  -> A VERIFIER au pied à coulisse
+BORDER_TOP = 3.15         # bord noir au-dessus de l'image (hypothèse, sert au tracé et à la version non tactile)
 BORDER_BOTTOM = PANEL_H - ACTIVE_H - BORDER_TOP   # bord noir en dessous (~7,9)
+
+# Verre tactile capacitif collé devant la dalle (VSDISPLAY VS126TC-B1)
+TOUCH = True              # False = dalle seule, sans tactile
+GLASS_W = 316.8           # largeur du verre tactile
+GLASS_H = 94.9            # hauteur du verre tactile
+GLASS_T = 2.0             # verre + adhésif  -> A MESURER au pied à coulisse
+LIP_OVERLAP = 1.8         # recouvrement de la façade sur le bord du verre
 
 # Jeux et épaisseurs
 CLR_SIDE = 0.35           # jeu latéral dalle / coque (par côté)
 CLR_TOP = 0.50            # jeu au-dessus de la dalle
-REVEAL = 0.90             # marge entre zone d'image et bord de la fenêtre
+REVEAL = 0.90             # version non tactile : marge entre zone d'image et bord de la fenêtre
 WALL = 2.4                # parois
 LIP = 1.6                 # épaisseur de la façade
 COVER_T = 2.4             # épaisseur du capot arrière
@@ -46,7 +53,6 @@ COVER_CLR = 0.25          # jeu capot / coque
 THETA = 25.0              # inclinaison de l'écran vers l'arrière (degrés)
 DEPTH = 40.0              # épaisseur du boîtier (façade -> dos)
 FOOT = 88.0               # profondeur de l'appui sur le bureau
-Y_P0 = 17.6               # hauteur du bas de la dalle (bandeau LED en dessous)
 R_CORNER = 3.0            # rayon des angles extérieurs
 
 # Bandeau lumineux
@@ -68,14 +74,14 @@ T, C, S = tan(radians(THETA)), cos(radians(THETA)), sin(radians(THETA))
 # --------------------------------------------------------------------------
 # Cotes dérivées
 # --------------------------------------------------------------------------
-HALF_IN = PANEL_W / 2 + CLR_SIDE           # demi-largeur intérieure
-HALF_OUT = HALF_IN + WALL                  # demi-largeur extérieure
-Y_IN = Y_P0 + PANEL_H + CLR_TOP            # face intérieure de la paroi haute
-H = Y_IN + WALL                            # hauteur de façade
+# Ce qui s'appuie contre la façade : le verre tactile s'il y en a un, sinon la dalle
+FRONT_W, FRONT_H = (GLASS_W, GLASS_H) if TOUCH else (PANEL_W, PANEL_H)
+STACK_T_EDGE = PANEL_T_EDGE + (GLASS_T if TOUCH else 0.0)   # épaisseur de l'empilement au bord
+STACK_T_MAX = PANEL_T_MAX + (GLASS_T if TOUCH else 0.0)     # épaisseur maxi (carte de la dalle)
+Z_LCD = LIP + (GLASS_T if TOUCH else 0.0)                   # face avant de la dalle
 Z_COVER = DEPTH - COVER_T                  # face intérieure du capot
-OPEN_HALF_W = ACTIVE_W / 2 + REVEAL
-OPEN_Y0 = Y_P0 + BORDER_BOTTOM - REVEAL
-OPEN_Y1 = Y_P0 + PANEL_H - BORDER_TOP + REVEAL
+HALF_IN = FRONT_W / 2 + CLR_SIDE           # demi-largeur intérieure
+HALF_OUT = HALF_IN + WALL                  # demi-largeur extérieure
 
 
 def ybo(z):
@@ -104,9 +110,21 @@ def div_up(z):
     return DIV_Y0 + DIV_DY + DIV_SLOPE * (z - LIP)
 
 
-assert div_up(LIP + PANEL_T_MAX + 0.3) <= Y_P0, "la cloison touche le bas de la dalle : augmenter Y_P0"
+# Hauteur du bas de l'empilement : juste assez pour que sa partie la plus épaisse passe devant la cloison
+Y_P0 = round(div_up(LIP + STACK_T_MAX + 0.3) + 0.15, 1)
+Y_IN = Y_P0 + FRONT_H + CLR_TOP            # face intérieure de la paroi haute
+H = Y_IN + WALL                            # hauteur de façade
+LCD_Y0 = Y_P0 + (FRONT_H - PANEL_H) / 2    # bas de la dalle (centrée derrière le verre)
+ACTIVE_Y0 = LCD_Y0 + BORDER_BOTTOM         # bas de la zone d'image
+if TOUCH:                                  # la fenêtre suit le contour du verre : bord de verre noir visible
+    OPEN_HALF_W = FRONT_W / 2 - LIP_OVERLAP
+    OPEN_Y0, OPEN_Y1 = Y_P0 + LIP_OVERLAP, Y_P0 + FRONT_H - LIP_OVERLAP
+else:                                      # la fenêtre suit la zone d'image
+    OPEN_HALF_W = ACTIVE_W / 2 + REVEAL
+    OPEN_Y0, OPEN_Y1 = ACTIVE_Y0 - REVEAL, ACTIVE_Y0 + ACTIVE_H + REVEAL
+OPEN_CHAMFER = 1.0 if TOUCH else 0.5       # chanfrein plus large : le doigt glisse sur le bord
 
-Z0_HOOK = LIP + PANEL_T_EDGE + 0.8         # départ des crochets au-dessus de la dalle
+Z0_HOOK = LIP + STACK_T_EDGE + 0.8         # départ des crochets au-dessus de la dalle
 
 BOSS_INSET = 4.2                           # axe des vis de capot / paroi haute
 Y_SCREW_TOP = Y_IN - BOSS_INSET
@@ -207,7 +225,7 @@ def build_shell():
     # Fenêtre d'écran et fenêtre du bandeau lumineux
     shell = shell.cut(box(-OPEN_HALF_W, OPEN_HALF_W, OPEN_Y0, OPEN_Y1, -1, LIP + 0.1))
     shell = shell.edges(edge_box((-OPEN_HALF_W - 0.1, OPEN_Y0 - 0.1, -0.01),
-                                 (OPEN_HALF_W + 0.1, OPEN_Y1 + 0.1, 0.01))).chamfer(0.5)
+                                 (OPEN_HALF_W + 0.1, OPEN_Y1 + 0.1, 0.01))).chamfer(OPEN_CHAMFER)
     shell = shell.cut(box(-LED_HALF_W, LED_HALF_W, LED_Y0, LED_Y1, -1, LIP + 0.1))
     shell = shell.edges(edge_box((-LED_HALF_W - 0.1, LED_Y0 - 0.1, -0.01),
                                  (LED_HALF_W + 0.1, LED_Y1 + 0.1, 0.01))).chamfer(0.8)
@@ -235,7 +253,7 @@ def build_shell():
         blk = prism_y([(xe, 21.1), (xe, Z_COVER), (xi, Z_COVER), (xi, 21.1 + 8.35)], ybo(Z_COVER) + 0.1, 30.0)
         f = f.union(blk)
         # gousset de vissage sur la cloison (dessous à 45°, au-dessus de la dalle)
-        c_line = Y_P0 - (LIP + PANEL_T_MAX + 0.7)
+        c_line = Y_P0 - (LIP + STACK_T_MAX + 0.7)
         y_face = div_up(Z_COVER) + 6.4
         z_s = (DIV_Y0 + DIV_DY - DIV_SLOPE * LIP - c_line) / (1 - DIV_SLOPE)
         pts = [(c_line + z_s, z_s), (y_face, y_face - c_line), (y_face, Z_COVER), (div_up(Z_COVER) - 0.6, Z_COVER),
@@ -280,7 +298,7 @@ def shell_half(shell, sgn):
 def build_cover():
     xw = HALF_IN - COVER_CLR
     cover = box(-xw, xw, ybi(DEPTH) + COVER_CLR, Y_IN - COVER_CLR, Z_COVER, DEPTH)
-    zt = LIP + PANEL_T_EDGE + 2.0            # les doigts s'arrêtent 2 mm derrière la dalle (mousse entre les deux)
+    zt = LIP + STACK_T_EDGE + 2.0            # les doigts s'arrêtent 2 mm derrière la dalle (mousse entre les deux)
 
     def side(sgn):
         # doigt d'appui sur le bord latéral de la dalle
@@ -288,7 +306,7 @@ def build_cover():
         f = f.union(prism_y([(sgn * 154.5, Z_COVER + 0.1), (sgn * 146.0, Z_COVER + 0.1), (sgn * 154.5, 22.0)],
                             60.5, 63.5))
         # doigts d'appui sur le bord haut de la dalle
-        y1 = Y_P0 + PANEL_H - 0.2
+        y1 = LCD_Y0 + PANEL_H - 0.2
         for xa in (24, 92):
             f = f.union(box(sgn * xa, sgn * (xa + 10), y1 - 2.8, y1, zt, Z_COVER + 0.1))
             f = f.union(prism_x([(y1 - 2.7, Z_COVER + 0.1), (y1 - 10.8, Z_COVER + 0.1), (y1 - 2.7, 24.0)],
@@ -397,8 +415,11 @@ def build_sensor_pod():
 # --------------------------------------------------------------------------
 def dummies():
     d = {}
-    d["dalle"] = box(-PANEL_W / 2, PANEL_W / 2, Y_P0, Y_P0 + PANEL_H, LIP, LIP + PANEL_T_EDGE).union(
-        box(-PANEL_W / 2 + 20, PANEL_W / 2 - 20, Y_P0 + 0.5, Y_P0 + 8, LIP + PANEL_T_EDGE, LIP + PANEL_T_MAX))
+    lcd = box(-PANEL_W / 2, PANEL_W / 2, LCD_Y0, LCD_Y0 + PANEL_H, Z_LCD, Z_LCD + PANEL_T_EDGE).union(
+        box(-PANEL_W / 2 + 20, PANEL_W / 2 - 20, LCD_Y0 + 0.5, LCD_Y0 + 8, Z_LCD + PANEL_T_EDGE, Z_LCD + PANEL_T_MAX))
+    if TOUCH:
+        lcd = lcd.union(box(-GLASS_W / 2, GLASS_W / 2, Y_P0, Y_P0 + GLASS_H, LIP, Z_LCD))
+    d["dalle"] = lcd
     zb = Z_COVER - 4.0
     pi = box(PI_X0, PI_X0 + 85, PI_Y0, PI_Y0 + 56, zb - 1.4, zb)
     pi = pi.union(box(PI_X0 - 2, PI_X0 + 19, PI_Y0 + 2, PI_Y0 + 17, zb - 17.4, zb - 1.4))     # USB
@@ -448,7 +469,7 @@ def main():
     cv = {1: cover_half(cover, 1), -1: cover_half(cover, -1)}
     cover_splice, foot_splice, diffuser, claw = build_cover_splice(), build_foot_splice(), build_diffuser(), build_claw()
     pod, pod_lid = build_sensor_pod()
-    gauge_box = box(-200, 200, -20, 200, -1, 8.5)
+    gauge_box = box(-200, 200, -20, 200, -1, Z0_HOOK + 3.1)
 
     # Nom -> (pièce orientée pour l'impression, quantité)
     parts = {
@@ -492,7 +513,7 @@ def main():
         }
         meta = {"theta": THETA, "parts": {}, "dims": {
             "W": round(2 * HALF_OUT, 2), "H": round(H, 2), "height": round(H * C, 1), "depth": FOOT,
-            "open": [OPEN_HALF_W, OPEN_Y0, OPEN_Y1], "led": [LED_HALF_W, LED_Y0, LED_Y1], "S": S, "C": C}}
+            "open": [OPEN_HALF_W, OPEN_Y0, OPEN_Y1], "led": [LED_HALF_W, LED_Y0, LED_Y1], "S": S, "C": C, "touch": TOUCH}}
         for name, (wp, mat) in asm.items():
             cq.exporters.export(wp, os.path.join(args.viz, name + ".stl"), tolerance=0.05, angularTolerance=0.25)
             meta["parts"][name] = mat

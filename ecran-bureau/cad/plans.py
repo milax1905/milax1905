@@ -80,7 +80,7 @@ def side_shapes():
 def general():
     s = Svg(1300, 690)
     s.text(40, 46, "DeskBar — encombrement", 24, INK, weight=700)
-    s.text(40, 70, "cotes en mm · dalle 12,6\" 1920×515 (BOE NV126B5M-N41)", 15, MUTED)
+    s.text(40, 70, "cotes en mm · dalle 12,6\" 1920×515 tactile (BOE NV126B5M-N41 + verre VS126TC-B1)", 15, MUTED)
     # ---- vue de face (2,6 px/mm)
     k, ox, oy = 2.4, 96, 150
     w, h = 2 * d.HALF_OUT * k, d.H * k
@@ -88,7 +88,7 @@ def general():
     fx = lambda x: ox + (d.HALF_OUT - x) * k            # +X modèle = gauche vu de face
     fy = lambda y: oy + (d.H - y) * k
     s.rect(fx(d.OPEN_HALF_W), fy(d.OPEN_Y1), 2 * d.OPEN_HALF_W * k, (d.OPEN_Y1 - d.OPEN_Y0) * k, "#0d1016")
-    ax, ay = fx(d.ACTIVE_W / 2), fy(d.Y_P0 + d.PANEL_H - d.BORDER_TOP)
+    ax, ay = fx(d.ACTIVE_W / 2), fy(d.ACTIVE_Y0 + d.ACTIVE_H)
     s.rect(ax, ay, d.ACTIVE_W * k, d.ACTIVE_H * k, "#1d2a44")
     s.text(ox + w / 2, ay + d.ACTIVE_H * k / 2 + 6, f"image {d.ACTIVE_W:.1f} × {d.ACTIVE_H:.1f}".replace(".", ","),
            17, "#c9d6f2", "middle", 500)
@@ -134,17 +134,19 @@ def section():
     # crochet haut + doigt d'appui du capot
     P([(d.Y_IN, d.Z0_HOOK), (d.Y_IN - 3.5, d.Z0_HOOK + 3.5), (d.Y_IN - 3.5, d.Z0_HOOK + 5.5),
        (d.Y_IN, d.Z0_HOOK + 9)])
-    yt = d.Y_P0 + d.PANEL_H - 0.2
-    zt = d.LIP + d.PANEL_T_EDGE + 2.0
+    yt = d.LCD_Y0 + d.PANEL_H - 0.2
+    zt = d.LIP + d.STACK_T_EDGE + 2.0
     P([(yt - 2.8, zt), (yt, zt), (yt, d.Z_COVER), (yt - 2.8, d.Z_COVER)], fill="#6f7a8c")
     # capot
     P([(d.ybi(d.DEPTH) + d.COVER_CLR, d.Z_COVER), (d.Y_IN - d.COVER_CLR, d.Z_COVER),
        (d.Y_IN - d.COVER_CLR, d.DEPTH), (d.ybi(d.DEPTH) + d.COVER_CLR, d.DEPTH)], fill="#6f7a8c")
-    # dalle
-    P([(d.Y_P0, d.LIP), (d.Y_P0 + d.PANEL_H, d.LIP), (d.Y_P0 + d.PANEL_H, d.LIP + d.PANEL_T_EDGE),
-       (d.Y_P0, d.LIP + d.PANEL_T_EDGE)], fill="#11151c")
-    P([(d.Y_P0 + 0.5, d.LIP + d.PANEL_T_EDGE), (d.Y_P0 + 8, d.LIP + d.PANEL_T_EDGE),
-       (d.Y_P0 + 8, d.LIP + d.PANEL_T_MAX), (d.Y_P0 + 0.5, d.LIP + d.PANEL_T_MAX)], fill="#11151c")
+    # dalle + verre tactile
+    y0, y1, z0 = d.LCD_Y0, d.LCD_Y0 + d.PANEL_H, d.Z_LCD
+    P([(y0, z0), (y1, z0), (y1, z0 + d.PANEL_T_EDGE), (y0, z0 + d.PANEL_T_EDGE)], fill="#11151c")
+    P([(y0 + 0.5, z0 + d.PANEL_T_EDGE), (y0 + 8, z0 + d.PANEL_T_EDGE), (y0 + 8, z0 + d.PANEL_T_MAX),
+       (y0 + 0.5, z0 + d.PANEL_T_MAX)], fill="#11151c")
+    if d.TOUCH:
+        P([(d.Y_P0, d.LIP), (d.Y_P0 + d.GLASS_H, d.LIP), (d.Y_P0 + d.GLASS_H, z0), (d.Y_P0, z0)], fill="#5aa9e6")
     # diffuseur, ruban LED, faisceau lumineux
     y0d, y1d = d.ybi(d.LIP + 0.8) + 0.2, d.DIV_Y0 + d.DIV_SLOPE * 0.8 - 0.2
     P([(d.DIV_ROOT - 8.5, d.Z_COVER - 2.2), (d.DIV_ROOT - 3.9, d.Z_COVER - 2.2), (d.LED_Y1, d.LIP + 0.8),
@@ -161,8 +163,10 @@ def section():
         P([(y - 3, zb), (y + 3, zb), (y + 3, d.Z_COVER), (y - 3, d.Z_COVER)], fill="#6f7a8c")
     # légendes
     L = lambda y, z, tx, ty, t, anchor="start": s.leader(*wp(y, z), tx, ty, t, anchor)
-    L(75, d.LIP + 1.5, 290, 250, "Dalle LCD 12,6\"", "end")
-    L(d.H - 6, 0.8, 290, 170, "Façade : 5 mm autour de l'image", "end")
+    L(75, d.Z_LCD + 1.5, 290, 250, "Dalle LCD 12,6\"", "end")
+    if d.TOUCH:
+        L(60, d.LIP + d.GLASS_T / 2, 290, 330, "Verre tactile capacitif", "end")
+    L(d.H - 6, 0.8, 290, 170, "Façade : recouvre le verre de 1,8 mm", "end")
     L(d.Y_IN - 2, d.Z0_HOOK + 4, 640, 96, "Crochet de la coque + doigt du capot (mousse)")
     L(d.H - 1.2, 30, 960, 150, "Paroi haute")
     L(85, d.DEPTH - 1.2, 980, 300, "Capot arrière (porte l'électronique)")
@@ -172,7 +176,7 @@ def section():
     L(d.TIP_O[0] * 0.8, d.TIP_O[1] * 0.8 + 1, 980, 640, "Semelle (pied intégré)")
     L(d.Y_GUSSET - 8, d.DEPTH + 9, 980, 585, "Gousset d'extrémité")
     L((d.LED_Y0 + d.LED_Y1) / 2, d.LIP + 0.4, 290, 640, "Diffuseur", "end")
-    L(d.Y_P0 + 4, d.LIP + d.PANEL_T_MAX - 0.5, 290, 560, "Carte de la dalle (5,3 max)", "end")
+    L(d.LCD_Y0 + 4, d.Z_LCD + d.PANEL_T_MAX - 0.5, 290, 560, "Carte de la dalle (5,3 max)", "end")
     s.vdim(px - 400, wp(d.H, 0)[1], py, f"{d.H * d.C:.1f}".replace(".", ","), ext_from=px - 380)
     s.hdim(px, px + d.FOOT * k, py + 44, f"{d.FOOT:.0f}", ext_from=py)
     s.save("plan_coupe.svg")
@@ -239,7 +243,8 @@ def wiring():
     block(40, 330, 250, 120, "Carte contrôleur", "HDMI · fournie avec la dalle")
     wire([(290, 365), (470, 365)], B, "micro-HDMI → HDMI", 298, 355)
     wire([(290, 415), (470, 415)], R, "USB-A → 5 V carte", 298, 405)
-    block(40, 540, 250, 100, "Dalle 12,6\" 1920×515", "BOE NV126B5M-N41")
+    block(40, 540, 250, 100, "Dalle 12,6\" tactile", "NV126B5M-N41 + verre VS126TC-B1")
+    wire([(290, 600), (400, 600), (400, 490), (470, 490)], P, "USB du tactile", 298, 590)
     wire([(165, 450), (165, 540)], G, "nappe eDP 40 broches", 177, 500)
     s.save("plan_cablage.svg")
 

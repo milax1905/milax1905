@@ -1,8 +1,9 @@
 # DeskBar — écran de bureau personnalisable à imprimer en 3D
 
-Un écran « bar » de 12,6" (1920 × 515) qui se glisse sous le moniteur principal : musique en cours, température
-et humidité de la chambre, avancement de l'impression Bambu Lab, notifications Discord, et un bandeau lumineux
-intégré sous l'image pour les notifications. Tout le boîtier s'imprime sur une Bambu Lab P2S (plateau 256 mm).
+Un écran « bar » **tactile** de 12,6" (1920 × 515) qui se glisse sous le moniteur principal : musique en cours,
+température et humidité de la chambre, avancement de l'impression Bambu Lab, notifications Discord, et un bandeau
+lumineux intégré sous l'image pour les notifications. Le tactile sert à balayer entre des pages plein écran
+(musique, météo…). Tout le boîtier s'imprime sur une Bambu Lab P2S (plateau 256 mm).
 
 ![Rendu du DeskBar posé sur un bureau](docs/rendu_face.jpg)
 
@@ -11,9 +12,9 @@ intégré sous l'image pour les notifications. Tout le boîtier s'imprime sur un
 
 | | |
 |---|---|
-| Encombrement posé | 321 mm de large × 104 mm de haut × 88 mm de profondeur, écran incliné de 25° |
-| Budget | ≈ 245 € tout compris (≈ 280 € avec un Raspberry Pi 5 2 Go, ≈ 160 € branché au PC) |
-| Impression | ≈ 370 g de filament, ≈ 13 h sur 4 plateaux, sans support |
+| Encombrement posé | 322 mm de large × 106 mm de haut × 88 mm de profondeur, écran incliné de 25° |
+| Budget | ≈ 310 € tout compris en tactile (≈ 245 € sans tactile, ≈ 225 € en tactile branché au PC) |
+| Impression | ≈ 375 g de filament, ≈ 13 h sur 4 plateaux, sans support |
 | Outils | clé Allen 2,5 mm, tournevis cruciforme, fer à souder (3 fils du ruban LED) |
 
 ## 1. Liste de courses et budget
@@ -23,7 +24,7 @@ mémoire), d'où le choix du modèle 1 Go.
 
 | # | Pièce | Détail à respecter | Prix |
 |---|---|---|---|
-| 1 | Dalle 12,6" 1920 × 515 IPS + carte contrôleur | Dalle **BOE NV126B5M-N41**, kit avec carte HDMI **alimentée en 5 V par USB** (pas la version 12 V) | ≈ 100 € |
+| 1 | Kit dalle 12,6" 1920 × 515 IPS **tactile** | Dalle **BOE NV126B5M-N41** + verre tactile capacitif USB (réf. VSDISPLAY **VS126TC-B1**, 10 points) + carte HDMI **alimentée en 5 V par USB** (pas la version 12 V) | ≈ 165 € |
 | 2 | Raspberry Pi 5 **1 Go** | Suffit pour l'affichage plein écran ; le 2 Go est plus confortable | ≈ 55 € |
 | 3 | Alimentation officielle Raspberry Pi 27 W USB-C | Alimente le Pi, l'écran et les LED | ≈ 14 € |
 | 4 | Carte microSD 32 Go (classe A1) | | ≈ 9 € |
@@ -37,23 +38,28 @@ mémoire), d'où le choix du modèle 1 Go.
 | 12 | Visserie : assortiment M3 + M2,5 | Voir le détail ci-dessous | ≈ 10 € |
 | 13 | Mousse adhésive 3 mm + 4 patins antidérapants | Cale la dalle sans la contraindre | ≈ 5 € |
 | 14 | Filament PLA mat noir (≈ 370 g) + un peu de blanc | Le blanc sert au diffuseur (2 g) | ≈ 8 € |
-| | **Total** | | **≈ 243 €** |
+| | **Total** | | **≈ 308 €** |
 
 Ce qui est vérifié et ce qui ne l'est pas :
 
 * **Raspberry Pi 5 1 Go** : relevé entre 50,70 € et 59,90 € chez les revendeurs français, mais le stock est irrégulier.
   Le 2 Go est passé à 77,50 $ prix public le 1er octobre 2026, soit ≈ 90 € en France.
-* **Dalle** : c'est le poste incertain. Le kit est affiché **≈ 130 à 166 € sur Amazon** ; je n'ai pas pu relever
-  les prix AliExpress, où ce kit est habituellement nettement moins cher. Les 100 € sont donc une estimation :
-  au-dessus de 150 €, le total dépasse 290 €.
+* **Kit tactile** : c'est le poste qui pèse et le moins sûr. Relevé à **175 € sur Amazon** (kit VSDISPLAY
+  dalle + verre tactile + carte) et entre 138 et 169 $ sur eBay hors port ; je n'ai pas pu relever les prix
+  AliExpress. Les 165 € sont donc une estimation.
 * Les autres lignes sont des ordres de grandeur.
 
-Deux variantes :
+Le total dépasse légèrement les 300 € visés. Pour repasser dessous :
 
-* **Confort (≈ 280 €)** : Raspberry Pi 5 2 Go à la place du 1 Go.
-* **Branché au PC (≈ 160 €)** : pas de Raspberry Pi ; l'écran est un deuxième moniteur HDMI du PC, et un
-  ESP32-C3 à 5 € pilote le capteur et les LED en USB. Moins cher, mais l'écran s'éteint avec le PC. Le boîtier
-  est le même.
+* trouver le kit tactile à **150 € ou moins** (total ≈ 293 €) ;
+* ne pas racheter ce que tu as déjà : filament, visserie et carte microSD représentent ≈ 27 €.
+
+Variantes :
+
+* **Sans tactile (≈ 245 €)** : dalle seule à ≈ 100 €. Mettre `TOUCH = False` dans `cad/deskbar.py` et régénérer.
+* **Tactile branché au PC (≈ 225 €)** : pas de Raspberry Pi ; l'écran est un deuxième moniteur tactile du PC, et
+  un ESP32-C3 à 5 € pilote le capteur et les LED en USB. Moins cher, mais l'écran s'éteint avec le PC. Le
+  boîtier est le même.
 
 Visserie nécessaire : 14 vis M3×8 tête fraisée, 4 vis M3×6 tête fraisée, 4 vis M3×8 tête bombée, 1 vis M3×16
 tête cylindrique à six pans creux avec son écrou, 4 vis M2,5×6. Toutes les vis se vissent directement dans le
@@ -95,7 +101,7 @@ Réglages Bambu Studio :
 
 ![Coupe](docs/plan_coupe.svg)
 
-Le boîtier fait 321 mm de large : il ne tient pas sur un plateau de 256 mm, il est donc coupé en deux demi-coques
+Le boîtier fait 322 mm de large : il ne tient pas sur un plateau de 256 mm, il est donc coupé en deux demi-coques
 boulonnées au milieu. Les deux façades s'impriment contre le même plateau, ce qui donne un joint fin et régulier.
 
 | Vue de dos | Vue éclatée |
@@ -104,17 +110,24 @@ boulonnées au milieu. Les deux façades s'impriment contre le même plateau, ce
 
 ## 4. À vérifier à la réception de la dalle
 
-Le boîtier est dessiné d'après la fiche technique de la dalle, **je n'ai pas pu le présenter sur une dalle
-réelle**. Avant de lancer les deux grosses coques (≈ 8 h), imprime les deux gabarits (≈ 1 h) et contrôle :
+Le boîtier est dessiné d'après les fiches techniques, **je n'ai pas pu le présenter sur une dalle réelle**, et
+l'épaisseur du verre tactile ne figure dans aucune annonce. Avant de lancer les deux grosses coques (≈ 8 h),
+mesure au pied à coulisse puis imprime les deux gabarits (≈ 1 h) :
 
-1. **Contour** : la dalle (315,6 × 94,0 mm attendus) se glisse dans les gabarits par le milieu, sans forcer.
-2. **Épaisseur au bord haut** : elle passe sous les crochets (prévus pour une dalle de 3,0 à 3,8 mm au bord).
-3. **Position de l'image** : écran allumé, l'image doit être entièrement visible dans la fenêtre. Le plan suppose
-   3,15 mm de bord noir en haut et 7,9 mm en bas ; ces deux valeurs ne figurent pas dans la fiche technique.
-4. **Carte contrôleur** : elle doit tenir dans 130 × 60 mm et s'alimenter en 5 V.
+1. **Contour du verre tactile** : 316,8 × 94,9 mm attendus (une seule annonce donne cette cote). La dalle derrière
+   fait 315,6 × 94,0 mm.
+2. **Épaisseur totale au bord** (verre + adhésif + dalle) : le plan suppose **5,0 mm** (2,0 + 3,0). C'est la cote
+   la plus incertaine ; les crochets acceptent de 5,0 à 5,8 mm.
+3. **Essai dans les gabarits** : l'ensemble se glisse par le milieu, sans forcer, bord haut sous les crochets.
+4. **Nappe du tactile** : repère par quel bord elle sort du verre ; elle doit pouvoir se replier derrière la dalle.
+5. **Cartes** : la carte contrôleur doit tenir dans 130 × 60 mm et s'alimenter en 5 V ; la petite carte USB du
+   tactile se fixe à côté.
 
-Si une cote diffère, donne-moi tes mesures : elles se règlent en tête de `cad/deskbar.py` (`PANEL_W`, `PANEL_H`,
-`PANEL_T_EDGE`, `BORDER_TOP`) et tout se régénère en une commande.
+La fenêtre de la façade suit le contour du verre (elle le recouvre de 1,8 mm) : le bord noir du verre reste
+visible autour de l'image, comme sur une tablette, et la position exacte de l'image n'a plus d'importance.
+
+Si une cote diffère, donne-moi tes mesures : elles se règlent en tête de `cad/deskbar.py` (`GLASS_W`, `GLASS_H`,
+`GLASS_T`, `PANEL_T_EDGE`) et tout se régénère en une commande.
 
 ## 5. Montage
 
@@ -122,17 +135,20 @@ Si une cote diffère, donne-moi tes mesures : elles se règlent en tête de `cad
 
 1. **Capot** : réunis les deux demi-capots avec l'éclisse (4 vis M3×6 fraisées, depuis l'extérieur). Visse le
    Raspberry Pi sur ses 4 entretoises (M2,5×6), ports USB-C et HDMI vers le bas. Bride la carte contrôleur sur les
-   nervures perforées avec les 4 griffes (M3×8 bombées). Colle le ruban LED le long du bord bas du capot.
-2. **Coques** : pose la coque gauche façade contre un chiffon, glisse la dalle dedans **par le plan de joint**,
-   écran vers le bas, bord haut sous les crochets. Enfile la coque droite sur l'autre moitié de la dalle. Serre le
+   nervures perforées avec les 4 griffes (M3×8 bombées) et colle la petite carte USB du tactile à côté (adhésif
+   double face). Colle le ruban LED le long du bord bas du capot.
+2. **Coques** : si le verre tactile est livré séparé, colle-le d'abord sur la dalle. Pose la coque gauche façade
+   contre un chiffon, glisse l'ensemble dedans **par le plan de joint**, verre vers le bas, bord haut sous les
+   crochets. Enfile la coque droite sur l'autre moitié de la dalle. Serre le
    boulon central (M3×16 + écrou, clé Allen), puis visse l'éclisse de pied par dessous (4 vis M3×8 fraisées).
 3. **Diffuseur** : dépose-le au fond du puits de lumière par l'arrière, avec un point de colle.
-4. **Câblage** : branche la nappe eDP de la dalle sur la carte contrôleur, la nappe HDMI, l'USB d'alimentation de
-   l'écran, les fils du ruban (par les encoches de la cloison) et le capteur.
+4. **Câblage** : branche la nappe eDP de la dalle sur la carte contrôleur, la nappe du verre sur la carte du
+   tactile, puis la nappe HDMI, les deux câbles USB vers le Pi (alimentation de l'écran et tactile), les fils du
+   ruban (par les encoches de la cloison) et le capteur.
 5. **Fermeture** : colle un morceau de mousse au bout des 6 doigts du capot (ils plaquent la dalle contre la
    façade), puis visse le capot (10 vis M3×8 fraisées). Le câble d'alimentation et celui de la sonde sortent par
    la lumière ovale en bas du capot.
-6. Colle les 4 patins sous la semelle. La sonde se pose à 30 cm au moins, hors du flux d'air chaud.
+6. Colle les 4 patins sous la semelle : indispensables pour que l'écran ne glisse pas quand on le touche. La sonde se pose à 30 cm au moins, hors du flux d'air chaud.
 
 ## 6. Câblage
 
@@ -147,6 +163,7 @@ Si une cote diffère, donne-moi tes mesures : elles se règlent en tête de `cad
 | 5 V | 2 | VCC du 74AHCT125 et +5V du ruban |
 | Masse | 6 | GND + 1OE du 74AHCT125, GND du ruban |
 | GPIO10 (MOSI) | 19 | entrée 1A du 74AHCT125 ; sortie 1Y → 330 Ω → DIN du ruban |
+| USB du tactile | port USB-A | carte USB du verre tactile (reconnue comme un écran tactile standard) |
 
 Le ruban est alimenté par le Pi : la luminosité sera plafonnée à ≈ 35 % dans le logiciel (moins de 1 A), ce qui
 reste très lumineux derrière le diffuseur.
@@ -154,7 +171,8 @@ reste très lumineux derrière le diffuseur.
 ## 7. Logiciel (étape suivante)
 
 Prévu : Raspberry Pi OS Lite, un navigateur plein écran et une page web qui sert de tableau de bord, donc
-entièrement personnalisable (HTML/CSS). Sources de données envisagées :
+entièrement personnalisable (HTML/CSS). L'accueil regroupe les widgets ; un balayage du doigt ouvre des pages
+plein écran (musique avec grande pochette, météo en grand, impression 3D…). Sources de données envisagées :
 
 * **Musique** : titre, pochette et avancement via l'API de ton service de streaming.
 * **Température / humidité** : lecture du SHT40 en I²C.
@@ -172,5 +190,5 @@ python3 deskbar.py     # régénère stl/ et step/
 python3 plans.py       # régénère les plans de docs/
 ```
 
-Tous les réglages (dalle, jeux, inclinaison `THETA`, profondeur du pied `FOOT`, position du Raspberry Pi) sont
+Tous les réglages (dalle, verre tactile, jeux, inclinaison `THETA`, profondeur du pied `FOOT`, position du Raspberry Pi) sont
 regroupés en tête de `cad/deskbar.py`.
